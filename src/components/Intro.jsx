@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight } from "lucide-react";
 
-// MobileLab mark: a phone outline holding a lab flask.
+// AppPeek mark: a phone outline holding a lab flask (same as the app icon).
 export function Logo({ size = 28, className = "" }) {
   return (
     <svg
@@ -16,7 +15,15 @@ export function Logo({ size = 28, className = "" }) {
       strokeLinejoin="round"
       aria-hidden="true"
     >
-      <rect className="logo-stroke" pathLength="1" x="11" y="3" width="26" height="42" rx="7" />
+      <rect
+        className="logo-stroke"
+        pathLength="1"
+        x="11"
+        y="3"
+        width="26"
+        height="42"
+        rx="7"
+      />
       <path className="logo-stroke" pathLength="1" d="M20 8h8" />
       <path
         className="logo-stroke"
@@ -27,27 +34,52 @@ export function Logo({ size = 28, className = "" }) {
   );
 }
 
-export default function Intro({ onDone }) {
+// Total time the loader bar takes to fill, then a short fade into Home.
+const LOAD_MS = 3000; // how long the intro stays before fading into Home
+const BAR_MS = 1200; // loader bar fill time (unchanged)
+const FADE_MS = 650;
+
+// The intro sits on top of Home. When it starts to leave, Home mounts underneath and
+// animates in while the intro fades out, so the two screens cross-fade with no gap.
+export default function Intro({ onLeave, onDone }) {
   const [leaving, setLeaving] = useState(false);
-  const timer = useRef(null);
+  const done = useRef(onDone);
+  done.current = onDone;
+  const leave = useRef(onLeave);
+  leave.current = onLeave;
 
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  const start = () => {
-    if (leaving) return;
-    setLeaving(true);
-    timer.current = setTimeout(onDone, 420);
-  };
+  useEffect(() => {
+    const reduce = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    const wait = reduce ? 600 : LOAD_MS;
+    let t2;
+    const t1 = setTimeout(() => {
+      setLeaving(true);
+      leave.current?.();
+      t2 = setTimeout(() => done.current?.(), reduce ? 0 : FADE_MS);
+    }, wait);
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
 
   return (
-    <div className={`intro ${leaving ? "is-leaving" : ""}`}>
+    <div
+      className={`intro ${leaving ? "is-leaving" : ""}`}
+      role="status"
+      aria-label="Loading AppPeek"
+    >
       <div className="intro-inner">
-        <Logo size={76} className="intro-logo" />
-        <h1 className="intro-title">MobileLab</h1>
-        <p className="intro-sub">Your React Native development companion.</p>
-        <button className="btn btn-invert intro-cta" onClick={start} autoFocus>
-          Get Started <ArrowRight size={16} />
-        </button>
+        <Logo size={72} className="intro-logo" />
+        <h1 className="intro-title">AppPeek</h1>
+        <div className="intro-loader" aria-hidden="true">
+          <span
+            className="intro-loader-fill"
+            style={{ animationDuration: `${BAR_MS}ms` }}
+          />
+        </div>
       </div>
     </div>
   );

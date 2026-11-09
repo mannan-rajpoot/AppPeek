@@ -1,4 +1,4 @@
-/* ───────── MobileLab — global styles ───────── */
+/* ───────── AppPeek — global styles ───────── */
 :root {
   --bg: #fafafa;
   --panel: #ffffff;
@@ -223,10 +223,13 @@ button:disabled {
   place-items: center;
   background: var(--black);
   color: #fff;
-  transition: opacity 0.4s ease;
+  transition:
+    opacity 0.45s ease,
+    transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
 .intro.is-leaving {
   opacity: 0;
+  transform: scale(1.02);
 }
 .intro-inner {
   display: flex;
@@ -242,20 +245,43 @@ button:disabled {
 }
 .intro-title {
   margin-top: 22px;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  animation: rise 0.6s 0.7s ease both;
+  letter-spacing: -0.025em;
+  animation: rise 0.6s 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-.intro-sub {
-  margin-top: 8px;
-  color: #a3a3a3;
-  font-size: 14px;
-  animation: rise 0.6s 0.85s ease both;
+.intro-loader {
+  position: relative;
+  width: 120px;
+  height: 2px;
+  margin-top: 36px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.14);
+  animation: fade 0.5s 0.9s ease both;
 }
-.intro-cta {
-  margin-top: 32px;
-  animation: rise 0.6s 1s ease both;
+.intro-loader-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: #fff;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation-name: load;
+  animation-delay: 0.9s;
+  animation-timing-function: cubic-bezier(0.45, 0.05, 0.25, 1);
+  animation-fill-mode: forwards;
+}
+@keyframes load {
+  0% {
+    transform: scaleX(0);
+  }
+  60% {
+    transform: scaleX(0.72);
+  }
+  100% {
+    transform: scaleX(1);
+  }
 }
 
 @keyframes draw {
@@ -1271,4 +1297,1392 @@ html.is-floating #root {
 }
 .float-root:hover .float-grip {
   opacity: 1;
+}
+
+/* ───────── Phase 6: on-screen keyboard, layout inspector, options menu ───────── */
+.vkb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  background: #d1d4d9;
+  transform: translateY(100%);
+  pointer-events: none;
+  user-select: none;
+  transition: transform 0.25s cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+.vkb.is-open {
+  transform: none;
+  pointer-events: auto;
+}
+.vkb-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 40px;
+  flex: none;
+  padding: 0 8px;
+  background: #d9dce0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+.vkb-sug {
+  flex: 1;
+  height: 22px;
+  border-right: 1px solid rgba(0, 0, 0, 0.12);
+}
+.vkb-sug:nth-child(3) {
+  border-right: 0;
+}
+.vkb-done {
+  margin-left: 8px;
+  padding: 4px 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #007aff;
+}
+.vkb-keys {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 3px calc(var(--vkb-bottom, 0px) + 4px);
+}
+.vkb-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 5px;
+  margin-bottom: 9px;
+}
+.vkb-row:last-child {
+  margin-bottom: 0;
+}
+.vkb-row-mid {
+  padding: 0 5%;
+}
+.vkb-key {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  background: #fff;
+  color: #000;
+  font:
+    400 22px/1 -apple-system,
+    "SF Pro Text",
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.35);
+}
+.vkb-key:active {
+  background: #c4c8ce;
+}
+.vkb-key.fn {
+  background: #abb0ba;
+  font-size: 16px;
+}
+.vkb-key.fn.on {
+  background: #fff;
+}
+.vkb-key.ret {
+  font-size: 16px;
+}
+.vkb-key.ghost {
+  background: transparent;
+  box-shadow: none;
+}
+.vkb-space {
+  font-size: 15px;
+}
+
+.inspect {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+.inspect-zone {
+  position: absolute;
+  border: 1px dashed rgba(255, 59, 48, 0.4);
+  background: rgba(255, 59, 48, 0.07);
+}
+.inspect-zone.z-island,
+.inspect-zone.z-notch {
+  background: rgba(255, 59, 48, 0.2);
+}
+.inspect-zone.z-keyboard {
+  border-color: rgba(0, 122, 255, 0.45);
+  background: rgba(0, 122, 255, 0.06);
+}
+.inspect-issue {
+  position: absolute;
+  outline: 1.5px dashed #f59e0b;
+  outline-offset: 0;
+  background: rgba(245, 158, 11, 0.14);
+}
+.inspect-tag {
+  position: absolute;
+  left: 0;
+  max-width: 260px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  font:
+    600 9px/13px -apple-system,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+  color: #fff;
+  background: rgba(180, 83, 9, 0.95);
+}
+
+.icon-btn {
+  position: relative;
+}
+.icon-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  font:
+    600 9px/14px system-ui,
+    sans-serif;
+  text-align: center;
+  color: #fff;
+  background: #d97706;
+}
+.tb-menu {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  width: 270px;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.14);
+}
+.menu-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.menu-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+.menu-item input {
+  margin-top: 2px;
+  accent-color: #000;
+}
+.menu-item strong {
+  display: block;
+  font-weight: 600;
+}
+.menu-item small {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+/* ───────── Phase 7: AppPeek polish (same black & white style, finer details) ───────── */
+:root {
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, 0.14);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+body {
+  letter-spacing: -0.003em;
+}
+::selection {
+  background: var(--black);
+  color: #fff;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border: 3px solid transparent;
+  border-radius: 8px;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a3a3a3;
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+
+/* buttons: crisper, with a soft press */
+.btn {
+  box-shadow: var(--shadow-sm);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    opacity 0.15s,
+    transform 0.12s var(--ease),
+    box-shadow 0.15s;
+}
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+.btn-primary {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.btn-ghost {
+  box-shadow: none;
+}
+.btn-ghost:hover:not(:disabled) {
+  background: var(--hover);
+  border-color: transparent;
+}
+.icon-btn {
+  transition:
+    background 0.15s,
+    transform 0.12s var(--ease);
+}
+.icon-btn:active:not(:disabled) {
+  transform: scale(0.94);
+}
+.select {
+  transition: border-color 0.15s;
+}
+.select:hover {
+  border-color: var(--faint);
+}
+
+/* home: smooth staggered entrance */
+.home-head,
+.home-inner > .block,
+.home-inner > .status-cards {
+  animation: rise 0.55s var(--ease) both;
+}
+.home-inner > :nth-child(2) {
+  animation-delay: 0.06s;
+}
+.home-inner > :nth-child(3) {
+  animation-delay: 0.12s;
+}
+.home-inner > :nth-child(4) {
+  animation-delay: 0.18s;
+}
+.home-inner > :nth-child(5) {
+  animation-delay: 0.24s;
+}
+
+/* sidebar */
+.sidebar {
+  padding: 22px 12px 16px;
+}
+.brand {
+  gap: 10px;
+  padding: 0 8px 22px;
+  margin-bottom: 6px;
+  font-size: 15px;
+  letter-spacing: -0.02em;
+  border-bottom: 1px solid var(--line);
+}
+.nav {
+  margin-top: 14px;
+}
+.nav-item {
+  position: relative;
+}
+.nav-item.is-active {
+  background: var(--black);
+  color: #fff;
+}
+.nav-item.is-active:hover {
+  background: #262626;
+}
+.sidebar-foot {
+  border-top: 1px solid var(--line);
+  padding: 14px 8px 0;
+  line-height: 1.5;
+}
+
+/* home header */
+.home-inner {
+  max-width: 1000px;
+}
+.home-head {
+  padding-bottom: 24px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--line);
+}
+.home-head h1 {
+  font-size: 26px;
+  letter-spacing: -0.03em;
+}
+.home-head p {
+  font-size: 14px;
+  line-height: 1.55;
+}
+.block h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+.empty {
+  display: grid;
+  place-items: center;
+  padding: 28px 16px;
+  text-align: center;
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 10px,
+    rgba(0, 0, 0, 0.015) 10px 20px
+  );
+}
+
+/* status cards */
+.status-card {
+  align-items: center;
+  box-shadow: var(--shadow-sm);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.status-card:hover {
+  border-color: var(--line-strong);
+}
+.status-card > svg {
+  margin-top: 0;
+  padding: 7px;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--hover);
+  color: var(--text);
+}
+.status-label {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+}
+.status-value {
+  font-size: 13.5px;
+}
+.dot-ok {
+  box-shadow: 0 0 0 3px rgba(21, 128, 61, 0.15);
+}
+.dot-bad {
+  box-shadow: 0 0 0 3px rgba(180, 35, 24, 0.15);
+}
+.dot-busy {
+  box-shadow: 0 0 0 3px rgba(161, 98, 7, 0.15);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* device cards */
+.device-card {
+  box-shadow: var(--shadow-sm);
+  transition:
+    transform 0.25s var(--ease),
+    border-color 0.2s,
+    box-shadow 0.25s;
+}
+.device-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-md);
+}
+.device-card:active {
+  transform: translateY(-1px);
+}
+.device-card.is-selected {
+  border-color: var(--black);
+  box-shadow: 0 0 0 1px var(--black);
+}
+.device-card-art {
+  background:
+    radial-gradient(#d9d9d9 1px, transparent 1px) 0 0 / 16px 16px,
+    #f4f4f4;
+  transition: background-color 0.25s;
+}
+.device-card-art .device-scale {
+  transition: transform 0.35s var(--ease);
+}
+.device-card:hover .device-card-art .device-scale {
+  transform: scale(1.04);
+}
+.device-card-action {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 13px;
+  transition:
+    background 0.2s,
+    color 0.2s,
+    border-color 0.2s;
+}
+.device-card:hover .device-card-action {
+  background: var(--black);
+  border-color: var(--black);
+  color: #fff !important;
+}
+
+/* recent list */
+.recent {
+  box-shadow: var(--shadow-sm);
+}
+.recent-row {
+  padding: 12px 16px;
+}
+.recent-row:hover {
+  background: var(--hover);
+}
+
+/* simulator workspace */
+.em-header {
+  height: 50px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  z-index: 2;
+}
+.em-title strong {
+  letter-spacing: -0.01em;
+}
+.toolbar {
+  min-height: 46px;
+  padding: 7px 14px;
+}
+.tb-sep {
+  margin: 0 10px;
+}
+.icon-btn.is-active {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.dock {
+  width: 68px;
+  gap: 10px;
+  padding: 14px 0;
+}
+.dock-main {
+  background: var(--bg);
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.15s var(--ease);
+}
+.dock-main:hover {
+  transform: translateY(-1px);
+}
+.dock-item.is-active .dock-main {
+  background: var(--panel);
+  box-shadow: 0 0 0 1px var(--black);
+}
+.dock-close {
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.stage {
+  background-color: #f4f4f4;
+  background-image: radial-gradient(#d9d9d9 1px, transparent 1px);
+}
+.stage-note {
+  padding: 28px 32px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+.em-footer {
+  padding: 7px 16px;
+  color: var(--muted);
+}
+.notice {
+  padding: 9px 14px;
+}
+.menu {
+  border-radius: 10px;
+  padding: 6px;
+  animation: pop 0.15s var(--ease) both;
+  transform-origin: top left;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+.preview-loading {
+  letter-spacing: 0.01em;
+}
+
+/* home: eyebrow label, section counts, recent-row icon */
+.home-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.home-eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--black);
+}
+.h2-note {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: var(--hover);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+.recent-ico {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 7px;
+  background: var(--hover);
+  color: var(--text);
+}
+.recent-row strong {
+  min-width: 130px;
+}
+.recent-row > svg:last-child {
+  color: var(--faint);
+  transition:
+    transform 0.2s var(--ease),
+    color 0.2s;
+}
+.recent-row:hover > svg:last-child {
+  color: var(--text);
+  transform: translateX(3px);
+}
+
+/* ───────── Phase 8: simple Home (bar + simulators + recent) and smooth motion ───────── */
+.screen-enter {
+  animation: screen-in 0.38s var(--ease) both;
+}
+.screen-enter.is-leaving {
+  animation: screen-out 0.17s ease-in forwards;
+  pointer-events: none;
+}
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes screen-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.home {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  height: 100%;
+}
+.home-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  height: 60px;
+  padding: 0 28px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.home .brand {
+  justify-content: flex-start;
+  gap: 11px;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+.home .brand span {
+  display: inline;
+}
+.home-main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.home-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 36px 32px 56px;
+}
+.home-inner > .block:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.home-inner > .block:nth-child(2) {
+  animation-delay: 0.14s;
+}
+
+/* cards and rows rise in one after another, then react smoothly to hover.
+   (fill-mode "backwards" so the hover lift is never overridden after the entrance) */
+.device-grid > .device-card {
+  animation: rise 0.5s var(--ease) backwards;
+}
+.device-grid > .device-card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+.device-grid > .device-card:nth-child(2) {
+  animation-delay: 0.17s;
+}
+.device-grid > .device-card:nth-child(3) {
+  animation-delay: 0.24s;
+}
+.recent li {
+  animation: rise 0.45s var(--ease) backwards;
+}
+.recent li:nth-child(1) {
+  animation-delay: 0.2s;
+}
+.recent li:nth-child(2) {
+  animation-delay: 0.26s;
+}
+.recent li:nth-child(3) {
+  animation-delay: 0.32s;
+}
+.recent li:nth-child(4) {
+  animation-delay: 0.38s;
+}
+.recent li:nth-child(5) {
+  animation-delay: 0.44s;
+}
+.device-card {
+  transition:
+    transform 0.35s var(--ease),
+    border-color 0.25s ease,
+    box-shadow 0.35s var(--ease);
+}
+.device-card:focus-visible {
+  outline-offset: 3px;
+}
+.recent-row {
+  transition:
+    background 0.22s ease,
+    padding-left 0.25s var(--ease);
+}
+.recent-row:hover {
+  padding-left: 20px;
+}
+
+/* open / close: the dock close button fades and pops instead of appearing instantly */
+.dock-close {
+  display: grid;
+  opacity: 0;
+  transform: scale(0.5);
+  pointer-events: none;
+  transition:
+    opacity 0.16s ease,
+    transform 0.2s var(--ease);
+}
+.dock-item:hover .dock-close,
+.dock-close:focus-visible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+.dock-add {
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s var(--ease);
+}
+.dock-add:hover {
+  transform: translateY(-1px);
+}
+.notice {
+  animation: notice-in 0.28s var(--ease) both;
+}
+@keyframes notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.stage-note {
+  animation: rise 0.4s var(--ease) both;
+}
+.fs-exit {
+  animation: fade 0.25s ease both;
+  transition: background 0.2s ease;
+}
+
+@media (max-width: 760px) {
+  .home-bar {
+    padding: 0 16px;
+  }
+  .home-inner {
+    padding: 24px 16px 40px;
+  }
+}
+
+/* ───────── Phase 9: white intro, directional slides, studio-grade hover ───────── */
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-io: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+/* intro: clean white, black mark, hairline loader */
+.intro {
+  background: radial-gradient(ellipse at 50% 38%, #ffffff 0%, #f6f6f6 100%);
+  color: var(--black);
+  transition:
+    opacity 0.55s var(--ease-io),
+    transform 0.55s var(--ease-io);
+}
+.intro.is-leaving {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+.intro-title {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  animation: rise 0.7s 0.6s var(--ease-out) both;
+}
+.intro-loader {
+  width: 132px;
+  height: 2px;
+  margin-top: 34px;
+  background: rgba(0, 0, 0, 0.09);
+  animation: fade 0.6s 0.9s ease both;
+}
+.intro-loader-fill {
+  background: var(--black);
+  animation-timing-function: var(--ease-io);
+}
+
+/* screens slide: forward = left, back = right, fade = default */
+.screen-enter {
+  animation: screen-in 0.45s var(--ease-out) both;
+}
+.screen-enter.dir-forward {
+  animation-name: slide-in-fwd;
+}
+.screen-enter.dir-back {
+  animation-name: slide-in-back;
+}
+.screen-enter.is-leaving {
+  animation: screen-out 0.2s var(--ease-io) forwards;
+  pointer-events: none;
+}
+.screen-enter.is-leaving.dir-forward {
+  animation-name: slide-out-fwd;
+}
+.screen-enter.is-leaving.dir-back {
+  animation-name: slide-out-back;
+}
+@keyframes slide-in-fwd {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+@keyframes slide-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes slide-out-fwd {
+  to {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+@keyframes slide-out-back {
+  to {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+
+/* home: frosted top bar + status strip, like an IDE */
+.home-bar {
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: saturate(1.4) blur(10px);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+}
+.home-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  height: 28px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.home-foot-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.home-foot .dot {
+  width: 6px;
+  height: 6px;
+}
+
+/* device cards: one long, soft motion for lift, shadow, zoom and pill */
+.device-card {
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  transition:
+    transform 0.5s var(--ease-out),
+    border-color 0.35s ease,
+    box-shadow 0.5s var(--ease-out);
+}
+.device-card:hover {
+  transform: translate3d(0, -4px, 0);
+  border-color: var(--line-strong);
+  box-shadow: 0 18px 36px -16px rgba(0, 0, 0, 0.22);
+}
+.device-card:active {
+  transform: translate3d(0, -1px, 0);
+  transition-duration: 0.15s;
+}
+.device-card-art {
+  transition: background-color 0.5s ease;
+}
+.device-card:hover .device-card-art {
+  background-color: #eeeeee;
+}
+.device-card-art .device-scale {
+  transition: transform 0.7s var(--ease-out);
+}
+.device-card:hover .device-card-art .device-scale {
+  transform: scale(1.05);
+}
+.device-card-action {
+  transition:
+    background 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease,
+    transform 0.5s var(--ease-out);
+}
+.device-card:hover .device-card-action {
+  transform: translateX(2px);
+}
+
+/* smoother defaults everywhere */
+.btn,
+.icon-btn,
+.nav-item,
+.dock-main {
+  transition-timing-function: var(--ease-out);
+}
+
+/* respect the system "reduce motion" setting in AppPeek itself */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ───────── Phase 10: intro → Home cross-fade, focused Home (header + devices) ───────── */
+
+/* intro sits on top of Home; same look, it just fades out over the arriving Home */
+.intro {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  transition:
+    opacity 0.65s var(--ease-io),
+    transform 0.65s var(--ease-io);
+}
+.intro.is-leaving {
+  pointer-events: none;
+}
+
+/* header: slides down softly */
+.home-bar {
+  animation: bar-in 0.7s var(--ease-out) both;
+}
+@keyframes bar-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* main area: content centred, faint dot grid and a soft glow behind the title */
+.home-main {
+  display: flex;
+  background:
+    radial-gradient(
+      ellipse 60% 45% at 50% 0%,
+      rgba(0, 0, 0, 0.045),
+      transparent 70%
+    ),
+    radial-gradient(#dcdcdc 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--bg);
+}
+.home-inner {
+  width: 100%;
+  margin: auto;
+  max-width: 1000px;
+  padding: 40px 32px 48px;
+}
+
+/* hero */
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 36px;
+  animation: rise 0.7s 0.12s var(--ease-out) both;
+}
+.hero .home-eyebrow {
+  margin-bottom: 16px;
+}
+.hero h1 {
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+.hero p {
+  margin-top: 10px;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+
+/* devices: the three cards are the focus, they rise in one after another */
+.home-inner > .block {
+  margin-bottom: 0;
+  animation: none;
+}
+.device-grid {
+  gap: 20px;
+}
+.device-card {
+  border-radius: 12px;
+}
+.device-card-art {
+  height: 236px;
+}
+.device-card-body {
+  padding: 14px 18px;
+}
+.device-grid > .device-card {
+  animation: rise 0.75s var(--ease-out) backwards;
+}
+.device-grid > .device-card:nth-child(1) {
+  animation-delay: 0.28s;
+}
+.device-grid > .device-card:nth-child(2) {
+  animation-delay: 0.38s;
+}
+.device-grid > .device-card:nth-child(3) {
+  animation-delay: 0.48s;
+}
+
+/* footer: quiet, centred note that fades in last */
+.home-foot {
+  justify-content: center;
+  animation: fade 0.8s 0.7s ease both;
+}
+
+@media (max-width: 760px) {
+  .hero h1 {
+    font-size: 24px;
+  }
+  .device-card-art {
+    height: 200px;
+  }
+}
+
+/* ───────── Phase 11: transparent header, refined Home, silky card hover ───────── */
+:root {
+  --ease-soft: cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* one continuous canvas: glow + dot grid sit behind the header, content and footer */
+.home {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(
+      ellipse 70% 50% at 50% 0%,
+      rgba(0, 0, 0, 0.05),
+      transparent 72%
+    ),
+    var(--bg);
+}
+.home::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(#d6d6d6 1px, transparent 1px) 0 0 / 24px 24px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 75% 70% at 50% 42%,
+    #000 20%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 75% 70% at 50% 42%,
+    #000 20%,
+    transparent 100%
+  );
+  animation: fade 1.2s 0.2s ease both;
+}
+.home-main {
+  background: none;
+}
+
+/* header: fully transparent, just the mark and the name */
+.home-bar {
+  height: 68px;
+  padding: 0 32px;
+  background: transparent;
+  border-bottom: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.home .brand {
+  gap: 12px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+/* hero */
+.hero {
+  margin-bottom: 44px;
+}
+.hero .home-eyebrow {
+  height: 24px;
+  padding: 0 11px;
+  margin-bottom: 18px;
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-sm);
+}
+.hero h1 {
+  font-size: 36px;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+.hero p {
+  margin-top: 12px;
+  max-width: 440px;
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+
+/* cards */
+.device-grid {
+  gap: 24px;
+}
+.device-card {
+  position: relative;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 0 0 0 rgba(0, 0, 0, 0);
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  transition:
+    transform 0.7s var(--ease-soft),
+    box-shadow 0.7s var(--ease-soft),
+    border-color 0.5s ease;
+}
+.device-card:hover,
+.device-card:focus-visible {
+  transform: translate3d(0, -8px, 0);
+  border-color: var(--line-strong);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.04),
+    0 28px 48px -24px rgba(0, 0, 0, 0.28);
+}
+.device-card:active {
+  transform: translate3d(0, -4px, 0);
+  transition-duration: 0.25s;
+}
+.device-card-art {
+  position: relative;
+  height: 252px;
+  overflow: hidden;
+  background: linear-gradient(180deg, #f7f7f7 0%, #ededed 100%);
+  transition: background-color 0.6s ease;
+}
+/* dotted texture + a soft spotlight that fades in behind the phone on hover */
+.device-card-art::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(#d4d4d4 1px, transparent 1px) 0 0 / 16px 16px;
+  opacity: 0.7;
+}
+.device-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 60% 55% at 50% 55%,
+    rgba(255, 255, 255, 0.95),
+    rgba(255, 255, 255, 0) 70%
+  );
+  opacity: 0;
+  transition: opacity 0.8s var(--ease-soft);
+  pointer-events: none;
+}
+.device-card:hover .device-card-art::after,
+.device-card:focus-visible .device-card-art::after {
+  opacity: 1;
+}
+.device-card-art > * {
+  position: relative;
+  z-index: 1;
+}
+.device-card-art .device-scale {
+  transform: translate3d(0, 0, 0) scale(1);
+  transition: transform 0.9s var(--ease-soft);
+}
+.device-card:hover .device-card-art .device-scale,
+.device-card:focus-visible .device-card-art .device-scale {
+  transform: translate3d(0, -4px, 0) scale(1.045);
+}
+.device-card-body {
+  padding: 16px 20px 18px;
+  border-top: 1px solid var(--line);
+}
+.device-card-body strong {
+  letter-spacing: -0.01em;
+}
+.device-card-action {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  transition:
+    background 0.5s var(--ease-soft),
+    border-color 0.5s var(--ease-soft),
+    color 0.5s var(--ease-soft),
+    transform 0.7s var(--ease-soft);
+}
+.device-card:hover .device-card-action,
+.device-card:focus-visible .device-card-action {
+  transform: translateX(3px);
+}
+
+/* footer: transparent too */
+.home-foot {
+  background: transparent;
+  border-top: 0;
+  height: 36px;
+}
+
+@media (max-width: 760px) {
+  .home-bar {
+    padding: 0 16px;
+  }
+  .hero h1 {
+    font-size: 27px;
+  }
+  .device-card-art {
+    height: 210px;
+  }
+}
+
+/* ───────── Phase 12: jitter-free hover, cursor spotlight, highlights row ───────── */
+
+/* The card no longer moves under the cursor (that caused flicker at its edge).
+   Depth comes from shadow, border, spotlight and the phone inside moving instead. */
+.device-card {
+  --mx: 50%;
+  --my: 45%;
+  transform: none;
+  will-change: box-shadow;
+  transition:
+    box-shadow 0.6s var(--ease-soft),
+    border-color 0.5s ease;
+}
+.device-card:hover,
+.device-card:focus-visible {
+  transform: none;
+  border-color: #bdbdbd;
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.05),
+    0 30px 56px -26px rgba(0, 0, 0, 0.32);
+}
+.device-card:active {
+  transform: none;
+}
+.device-card:active .device-card-art .device-scale {
+  transform: translate3d(0, -2px, 0) scale(1.02);
+  transition-duration: 0.3s;
+}
+
+/* spotlight follows the cursor */
+.device-card-art::after {
+  background: radial-gradient(
+    circle 190px at var(--mx) var(--my),
+    rgba(255, 255, 255, 0.95),
+    rgba(255, 255, 255, 0) 100%
+  );
+  transition: opacity 0.6s var(--ease-soft);
+}
+.device-card-art .device-scale {
+  transition: transform 1s var(--ease-soft);
+}
+.device-card:hover .device-card-art .device-scale,
+.device-card:focus-visible .device-card-art .device-scale {
+  transform: translate3d(0, -6px, 0) scale(1.05);
+}
+
+/* ───────── Phase 13: card hover always animates (even in low-spec / reduced-motion) ─────────
+   Low-spec mode and "reduce motion" switch every transition off, which made the
+   hover feel instant. Card hover is a gentle effect, so it is kept on in both. */
+.home .device-card {
+  transition:
+    box-shadow 0.6s var(--ease-soft),
+    border-color 0.5s ease !important;
+}
+.home .device-card-art::after {
+  transition: opacity 0.6s var(--ease-soft) !important;
+}
+.home .device-card-art .device-scale {
+  will-change: transform;
+  transition: transform 0.9s var(--ease-soft) !important;
+}
+.home .device-card-action {
+  transition:
+    background 0.5s var(--ease-soft),
+    border-color 0.5s var(--ease-soft),
+    color 0.5s var(--ease-soft),
+    transform 0.7s var(--ease-soft) !important;
+}
+
+/* ───────── Phase 14: snappier hover, credit line ───────── */
+/* short, quick-start easing: the card reacts the moment the cursor enters */
+.home .device-card {
+  transition:
+    box-shadow 0.28s cubic-bezier(0.2, 0.8, 0.3, 1),
+    border-color 0.2s ease !important;
+}
+.home .device-card-art::after {
+  transition: opacity 0.22s ease-out !important;
+}
+.home .device-card-art .device-scale {
+  transition: transform 0.38s cubic-bezier(0.2, 0.8, 0.3, 1) !important;
+}
+.home .device-card-action {
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.3, 1) !important;
+}
+
+/* footer: note on the left, credit on the right */
+.home-foot {
+  justify-content: space-between;
+  padding: 0 28px;
+}
+.home-credit {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--faint);
+}
+.home-credit strong {
+  font-weight: 600;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .home-foot {
+    padding: 0 16px;
+  }
+}
+
+/* ───────── Phase 15: note stays centred, credit bottom right ───────── */
+.home-foot {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+}
+.home-foot .home-foot-item {
+  grid-column: 2;
+  justify-self: center;
+}
+.home-foot .home-credit {
+  grid-column: 3;
+  justify-self: end;
+}
+@media (max-width: 760px) {
+  .home-foot {
+    grid-template-columns: 1fr auto;
+  }
+  .home-foot .home-foot-item {
+    display: none;
+  }
+  .home-foot .home-credit {
+    grid-column: 2;
+  }
 }

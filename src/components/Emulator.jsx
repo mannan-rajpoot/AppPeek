@@ -20,7 +20,8 @@ import {
   Minimize2,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import DeviceFrame, { getFrameSize } from "./DeviceFrame.jsx";
+import DeviceFrame, { getFrameSize, getZones } from "./DeviceFrame.jsx";
+import VirtualKeyboard from "./Keyboard.jsx";
 import PreviewToolbar from "./PreviewToolbar.jsx";
 import { DEVICES, getDevice } from "./DeviceSelector.jsx";
 
@@ -76,6 +77,72 @@ paint();
 parent.postMessage({type:'mobilelab:ready'},'*');
 </script></body></html>`;
 
+// iOS preview options (shared by the main and floating windows through localStorage).
+export const IOS_DEFAULTS = {
+  keyboard: "off",
+  inspect: false,
+  kbResize: false,
+  reduceMotion: false,
+  scroll: true,
+};
+const IOS_KEY = "mobilelab.ios";
+export function readIos() {
+  try {
+    return {
+      ...IOS_DEFAULTS,
+      ...(JSON.parse(localStorage.getItem(IOS_KEY) || "{}") || {}),
+    };
+  } catch {
+    return IOS_DEFAULTS;
+  }
+}
+export function writeIos(v) {
+  try {
+    localStorage.setItem(IOS_KEY, JSON.stringify(v));
+  } catch {
+    /* options are a convenience only */
+  }
+}
+
+const RETURN_LABELS = {
+  go: "Go",
+  search: "Search",
+  send: "Send",
+  next: "Next",
+  done: "Done",
+  previous: "Prev",
+};
+
+// Layout inspector overlay: protected system areas + warnings. Drawn by AppPeek on top of the
+// preview (pointer-events: none), so it never touches or moves your components.
+function InspectOverlay({ zones, issues }) {
+  return (
+    <div className="inspect" aria-hidden="true">
+      {zones.map((z, i) => (
+        <i
+          key={`z${i}`}
+          className={`inspect-zone z-${z.kind}`}
+          style={{ left: z.x, top: z.y, width: z.w, height: z.h }}
+        />
+      ))}
+      {issues.map((it, i) => (
+        <div
+          key={`i${i}`}
+          className="inspect-issue"
+          style={{ left: it.x, top: it.y, width: it.w, height: it.h }}
+        >
+          <span
+            className="inspect-tag"
+            style={{ top: it.y < 22 ? it.h + 1 : -15 }}
+          >
+            {it.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // What the placeholder page says while there is no live Expo page to show.
 export function statusFor(project, server, floating = false) {
   if (!project)
@@ -111,7 +178,8 @@ export function statusFor(project, server, floating = false) {
 // The isolated simulator viewport. Its size is the screen's logical size, because
 // only the OUTER frame is scaled — never the screen itself. When the Expo server is
 // running it shows the real app (Expo Web) in this same iframe; the page gets the
-// device's safe-area insets and reports its top colour (for the status bar text).
+// device's safe-area insets, keyboard size and options, and reports its top colour,
+// focus and (optionally) layout problems back. Nothing here edits your components.
 export function PreviewViewport({
   device,
   landscape,
@@ -120,21 +188,50 @@ export function PreviewViewport({
   server,
   onTone,
   floating = false,
+  ios = IOS_DEFAULTS,
+  kbForce = false,
+  onKbHide,
+  onIssues,
 }) {
   const ref = useRef(null);
   const lastRefresh = useRef(refreshes);
+  const W = landscape ? device.height : device.width;
+  const H = landscape ? device.width : device.height;
   const safe = landscape ? device.safeLandscape : device.safe;
   const safeRef = useRef(safe);
   safeRef.current = safe;
   const live = server.state === "running" && !!server.url;
   const [loading, setLoading] = useState(live);
+  const [focus, setFocus] = useState({
+    editable: false,
+    mode: "text",
+    decimal: false,
+    hint: "",
+  });
+  const [issues, setIssues] = useState([]);
   const status = useMemo(
     () => statusFor(project, server, floating),
     [project, server.state, server.message, floating],
   );
 
+  // Keyboard: shows when an input is focused (or forced with Ctrl+Shift+K).
+  const kbHeight = device.keyboard?.[landscape ? "landscape" : "portrait"] || 0;
+  const kbOn = ios.keyboard === "auto" && kbHeight > 0;
+  const kbVisible = kbOn && (focus.editable || kbForce);
+  const resizeMode = kbVisible && ios.kbResize; // page gets shorter (Android-style) instead of being covered
+  const safeEff = useMemo(
+    () => (resizeMode ? { ...safe, bottom: 0 } : safe),
+    [safe, resizeMode],
+  );
+  const zones = useMemo(() => {
+    const z = getZones(device, landscape);
+    if (kbVisible && !ios.kbResize)
+      z.push({ kind: "keyboard", x: 0, y: H - kbHeight, w: W, h: kbHeight });
+    return z;
+  }, [device, landscape, kbVisible, kbHeight, ios.kbResize, W, H]);
+
   // Page address. The insets ride along once (the page reads them before the app starts);
-  // later changes (rotation) arrive as messages, so rotating never reloads the app.
+  // later changes (rotation, device switch) arrive as messages, so they never reload the app.
   const liveUrl = (n) => {
     const s = safeRef.current;
     return `${server.url}/?mlr=${n}#mlsafe=${s.top || 0},${s.right || 0},${s.bottom || 0},${s.left || 0}`;
@@ -154,30 +251,92 @@ export function PreviewViewport({
         type: "mobilelab:viewport",
         name: device.name,
         landscape,
-        safe,
+        safe: safeEff,
         status,
       }),
-    [post, device.name, landscape, safe, status],
+    [post, device.name, landscape, safeEff, status],
+  );
+  const sendOptions = useCallback(
+    () =>
+      post({
+        type: "mobilelab:options",
+        scroll: ios.scroll,
+        reduceMotion: ios.reduceMotion,
+      }),
+    [post, ios.scroll, ios.reduceMotion],
+  );
+  const sendKeyboard = useCallback(
+    () =>
+      post({
+        type: "mobilelab:keyboard",
+        visible: kbVisible,
+        height: kbHeight,
+        resize: ios.kbResize,
+      }),
+    [post, kbVisible, kbHeight, ios.kbResize],
+  );
+  const sendInspect = useCallback(
+    () => post({ type: "mobilelab:inspect", on: ios.inspect, zones }),
+    [post, ios.inspect, zones],
   );
 
   useEffect(() => {
     const onMsg = (e) => {
       if (e.source !== ref.current?.contentWindow) return;
-      const type = e.data?.type;
-      if (type === "mobilelab:ready") sendViewport();
-      else if (type === "mobilelab:theme") onTone?.(!!e.data.dark);
+      const d = e.data || {};
+      if (d.type === "mobilelab:ready") {
+        sendViewport();
+        sendOptions();
+        sendKeyboard();
+        sendInspect();
+      } else if (d.type === "mobilelab:theme") onTone?.(!!d.dark);
+      else if (d.type === "mobilelab:focus")
+        setFocus({
+          editable: !!d.editable,
+          mode: d.mode || "text",
+          decimal: !!d.decimal,
+          hint: d.hint || "",
+        });
+      else if (d.type === "mobilelab:issues")
+        setIssues(Array.isArray(d.issues) ? d.issues : []);
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [sendViewport, onTone]);
+  }, [sendViewport, sendOptions, sendKeyboard, sendInspect, onTone]);
 
   useEffect(() => {
     sendViewport();
   }, [sendViewport]);
+  useEffect(() => {
+    sendOptions();
+  }, [sendOptions]);
+
+  // Keyboard / inspector messages are only sent while they matter (or once when they turn off).
+  const kbWas = useRef(false);
+  useEffect(() => {
+    if (!kbVisible && !kbWas.current) return;
+    kbWas.current = kbVisible;
+    sendKeyboard();
+  }, [sendKeyboard, kbVisible]);
+  const inspectWas = useRef(false);
+  useEffect(() => {
+    if (!ios.inspect && !inspectWas.current) return;
+    inspectWas.current = ios.inspect;
+    sendInspect();
+  }, [sendInspect, ios.inspect]);
 
   useEffect(() => {
-    if (!live) onTone?.(false); // the placeholder page is light
+    if (!live) {
+      onTone?.(false); // the placeholder page is light
+      setFocus((f) => (f.editable ? { ...f, editable: false } : f));
+    }
   }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!ios.inspect || !live) setIssues([]);
+  }, [ios.inspect, live]);
+  useEffect(() => {
+    onIssues?.(ios.inspect ? issues.length : 0);
+  }, [issues.length, ios.inspect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (lastRefresh.current === refreshes) return;
@@ -205,7 +364,13 @@ export function PreviewViewport({
         ref={ref}
         className="preview-frame"
         title="Simulator preview"
-        onLoad={() => setLoading(false)}
+        style={
+          resizeMode ? { height: `calc(100% - ${kbHeight}px)` } : undefined
+        }
+        onLoad={() => {
+          setLoading(false);
+          setFocus((f) => (f.editable ? { ...f, editable: false } : f)); // a freshly loaded page has nothing focused
+        }}
         {...(live ? { src: initialSrc } : { srcDoc: PREVIEW_DOC })}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
         allow="clipboard-read; clipboard-write; geolocation; microphone; camera"
@@ -215,6 +380,22 @@ export function PreviewViewport({
           <span className="spinner" />
           Loading preview…
         </div>
+      )}
+      {ios.inspect && <InspectOverlay zones={zones} issues={issues} />}
+      {kbOn && (
+        <VirtualKeyboard
+          open={kbVisible}
+          height={kbHeight}
+          bottomInset={safe.bottom}
+          layout={focus.mode}
+          decimal={focus.decimal}
+          returnLabel={RETURN_LABELS[focus.hint] || "return"}
+          onKey={(key) => post({ type: "mobilelab:key", key })}
+          onDone={() => {
+            post({ type: "mobilelab:blur" });
+            onKbHide?.();
+          }}
+        />
       )}
     </>
   );
@@ -249,6 +430,25 @@ export default function Emulator({
   const [stage, setStage] = useState({ w: 0, h: 0 });
   const [fullscreen, setFullscreen] = useState(false);
   const [tones, setTones] = useState({}); // per simulator: is the app behind the status bar dark?
+  const [issueCounts, setIssueCounts] = useState({}); // per simulator: layout problems found by the inspector
+  const [ios, setIos] = useState(readIos);
+  const [kbForce, setKbForce] = useState(false);
+  const setIosOpt = (patch) =>
+    setIos((prev) => {
+      const next = { ...prev, ...patch };
+      writeIos(next);
+      return next;
+    });
+  const toggleKeyboardNow = () => {
+    if (ios.keyboard !== "auto") {
+      setIosOpt({ keyboard: "auto" });
+      setKbForce(true);
+    } else setKbForce((f) => !f);
+  };
+  // Options changed in the floating window are picked up when we come back.
+  useEffect(() => {
+    if (floatingId == null) setIos(readIos());
+  }, [floatingId]);
 
   // Full screen also takes the whole window fullscreen (no title bar) and leaves it when we go Home.
   const firstFs = useRef(true);
@@ -298,6 +498,7 @@ export default function Emulator({
   const frame = getFrameSize(device, landscape);
   const scale = scaleFor(session, frame);
   const pct = Math.round(scale * 100);
+  const safeNow = landscape ? device.safeLandscape : device.safe;
 
   const zoomIn = () => {
     const next = ZOOM_STEPS.find((z) => z > pct);
@@ -373,6 +574,14 @@ export default function Emulator({
     if (key === "o" && e.shiftKey) {
       e.preventDefault();
       return toggleOrientation();
+    }
+    if (key === "k" && e.shiftKey) {
+      e.preventDefault();
+      return toggleKeyboardNow();
+    }
+    if (key === "l" && e.shiftKey) {
+      e.preventDefault();
+      return setIosOpt({ inspect: !ios.inspect });
     }
     if (key === "p" && e.shiftKey) {
       e.preventDefault();
@@ -476,6 +685,9 @@ export default function Emulator({
         onZoomFit={() => onUpdate({ zoom: "fit" })}
         onFullscreen={() => setFullscreen((f) => !f)}
         onFloat={() => onFloat(pct)}
+        ios={ios}
+        onIos={setIosOpt}
+        issueCount={issueCounts[session.id] || 0}
         onMinimize={minimize}
         onRestore={restore}
       />
@@ -588,6 +800,14 @@ export default function Emulator({
                           t[s.id] === dark ? t : { ...t, [s.id]: dark },
                         )
                       }
+                      ios={ios}
+                      kbForce={kbForce}
+                      onKbHide={() => setKbForce(false)}
+                      onIssues={(n) =>
+                        setIssueCounts((c) =>
+                          c[s.id] === n ? c : { ...c, [s.id]: n },
+                        )
+                      }
                     />
                   )}
                 </DeviceFrame>
@@ -620,7 +840,8 @@ export default function Emulator({
       <footer className="em-footer">
         <span>
           {frame.sw} × {frame.sh} pt · {landscape ? "Landscape" : "Portrait"} ·{" "}
-          {pct}%
+          {pct}% · safe area {frame.sw - safeNow.left - safeNow.right} ×{" "}
+          {frame.sh - safeNow.top - safeNow.bottom} pt
           {maxSessions === 1 && (
             <span className="low-mem">
               {" "}

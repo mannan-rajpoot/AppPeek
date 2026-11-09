@@ -40,7 +40,7 @@ export default function App() {
 
 const DESKTOP_ONLY = {
   tone: "bad",
-  message: "Project connection needs the MobileLab desktop app.",
+  message: "Project connection needs the AppPeek desktop app.",
   hint: "Start it with `npm run tauri dev` instead of the browser-only `npm run dev`.",
 };
 
@@ -92,7 +92,10 @@ function writeSavedProject(path) {
 }
 
 function Workspace() {
-  const [screen, setScreen] = useState("intro"); // intro | home | emulator
+  const [screen, setScreen] = useState("home"); // home | emulator
+  // The intro is an overlay: Home mounts when it starts fading, the overlay is removed when done.
+  const [homeReady, setHomeReady] = useState(false);
+  const [introGone, setIntroGone] = useState(false);
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [recent, setRecent] = useState(loadRecent);
@@ -104,6 +107,26 @@ function Workspace() {
   const floatRef = useRef(null);
   const floatHandler = useRef(null);
   const nextId = useRef(1);
+
+  // Screen changes play a short exit animation first (skipped in low-spec / reduced-motion).
+  // dir: "forward" slides left (Home -> simulator), "back" slides right, "fade" is the default.
+  const [leaving, setLeaving] = useState(false);
+  const [dir, setDir] = useState("fade");
+  const leaveTimer = useRef(null);
+  useEffect(() => () => clearTimeout(leaveTimer.current), []);
+  const go = (fn, direction = "forward") => {
+    if (leaving) return;
+    const still =
+      document.documentElement.classList.contains("low-spec") ||
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (still) return fn();
+    setDir(direction);
+    setLeaving(true);
+    leaveTimer.current = setTimeout(() => {
+      fn();
+      setLeaving(false);
+    }, 200);
+  };
 
   const serverRef = useRef(server);
   serverRef.current = server;
@@ -180,7 +203,7 @@ function Workspace() {
         const ok = await ask(
           "An Expo server is running for the current project. Stop it and switch projects?",
           {
-            title: "MobileLab",
+            title: "AppPeek",
             kind: "warning",
             okLabel: "Switch",
             cancelLabel: "Cancel",
@@ -203,7 +226,7 @@ function Workspace() {
     }
   };
 
-  // Restore the last project when MobileLab opens.
+  // Restore the last project when AppPeek opens.
   useEffect(() => {
     if (!inTauri()) return;
     const saved = readSavedProject();
@@ -372,7 +395,7 @@ function Workspace() {
     if (!inTauri()) {
       return setNotice({
         tone: "bad",
-        message: "Floating mode needs the MobileLab desktop app.",
+        message: "Floating mode needs the AppPeek desktop app.",
         hint: "Start it with `npm run tauri dev` instead of the browser-only `npm run dev`.",
       });
     }
@@ -440,12 +463,6 @@ function Workspace() {
     };
   }, []);
 
-  const startNewPreview = () => openDevice(recent[0]?.deviceId || "iphone-14");
-
-  if (screen === "intro") {
-    return <Intro onDone={() => setScreen("home")} />;
-  }
-
   const showEmulator = screen === "emulator" && !!active;
 
   return (
@@ -453,7 +470,11 @@ function Workspace() {
       {/* The workspace stays mounted (just hidden) while you visit Home, so running simulators keep their state. */}
       {active && (
         <div
-          className={showEmulator ? "screen-enter" : ""}
+          className={
+            showEmulator
+              ? `screen-enter dir-${dir}${leaving ? " is-leaving" : ""}`
+              : ""
+          }
           style={showEmulator ? undefined : { display: "none" }}
         >
           <Emulator
@@ -476,22 +497,22 @@ function Workspace() {
             onSwitchDevice={(deviceId) => switchDevice(active.id, deviceId)}
             onActivate={activate}
             onClose={closeSession}
-            onHome={() => setScreen("home")}
+            onHome={() => go(() => setScreen("home"), "back")}
           />
         </div>
       )}
-      {!showEmulator && (
-        <div className="screen-enter">
-          <Home
-            sessions={sessions}
-            recent={recent}
-            project={project}
-            server={server}
-            onOpen={openDevice}
-            onNewPreview={startNewPreview}
-            onResume={() => setScreen("emulator")}
-          />
+      {!showEmulator && homeReady && (
+        <div
+          className={`screen-enter dir-${dir}${leaving ? " is-leaving" : ""}`}
+        >
+          <Home onOpen={(id) => go(() => openDevice(id))} />
         </div>
+      )}
+      {!introGone && (
+        <Intro
+          onLeave={() => setHomeReady(true)}
+          onDone={() => setIntroGone(true)}
+        />
       )}
     </>
   );

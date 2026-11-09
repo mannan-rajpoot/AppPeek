@@ -366,12 +366,20 @@ fn inspect(dir: &Path) -> Result<ProjectInfo, Problem> {
 
 /* ───────────── preview proxy ─────────────
    The simulator loads the Expo page through this tiny local proxy so MobileLab can:
-   - give the page real iPhone safe-area insets (env(safe-area-inset-*) becomes a variable
-     that MobileLab sets), and
-   - learn the page's top colour so the status bar text can stay readable.
+   - give the page real iPhone safe-area / keyboard sizes (env(safe-area-inset-*) and
+     env(keyboard-inset-*) become variables that MobileLab sets),
+   - learn the page's top colour and focus state (status bar text, on-screen keyboard), and
+   - run the optional layout inspector. It never edits your components.
    Everything else (HMR websockets, assets, API calls) passes through untouched. */
 
-const INJECT: &str = r#"<style id="ml-safe">:root{--ml-sat:0px;--ml-sar:0px;--ml-sab:0px;--ml-sal:0px}</style><script>(function(){var r=document.documentElement,t=0,last="";function setSafe(s){s=s||{};var st=r.style;st.setProperty("--ml-sat",(s.top||0)+"px");st.setProperty("--ml-sar",(s.right||0)+"px");st.setProperty("--ml-sab",(s.bottom||0)+"px");st.setProperty("--ml-sal",(s.left||0)+"px")}var u=new URL(location.href),m=/mlsafe=(\d+),(\d+),(\d+),(\d+)/.exec(u.hash),v=null,dirty=false;if(m){v={top:+m[1],right:+m[2],bottom:+m[3],left:+m[4]};try{sessionStorage.setItem("mlsafe",JSON.stringify(v))}catch(e){}dirty=true}else{try{v=JSON.parse(sessionStorage.getItem("mlsafe"))}catch(e){}}if(u.searchParams.has("mlr")){u.searchParams.delete("mlr");dirty=true}if(dirty){u.hash="";try{history.replaceState(null,"",u.pathname+u.search)}catch(e){}}if(v)setSafe(v);addEventListener("message",function(e){var d=e.data||{};if(e.source===parent&&d.type==="mobilelab:viewport")setSafe(d.safe)});function bg(el){while(el){var m=getComputedStyle(el).backgroundColor.match(/[\d.]+/g);if(m&&(m.length<4||parseFloat(m[3])>0.5))return m.map(Number);el=el.parentElement}return[255,255,255]}function sample(){try{var el=document.elementFromPoint(Math.max(1,innerWidth/2),2)||document.body,p=bg(el),dark=(0.299*p[0]+0.587*p[1]+0.114*p[2])<140,key=p[0]+","+p[1]+","+p[2];if(key!==last){last=key;parent.postMessage({type:"mobilelab:theme",dark:dark},"*")}}catch(e){}}function soon(){if(!t)t=setTimeout(function(){t=0;sample()},400)}new MutationObserver(soon).observe(r,{subtree:true,childList:true,attributes:true,attributeFilter:["style","class"]});addEventListener("load",soon);addEventListener("resize",soon);soon();parent.postMessage({type:"mobilelab:ready"},"*")})();</script>"#;
+// The helper script lives in inject.js (readable, and tested separately).
+const INJECT_JS: &str = include_str!("inject.js");
+
+fn inject_block() -> String {
+    format!(
+        "<style id=\"ml-safe\">:root{{--ml-inset-top:0px;--ml-inset-right:0px;--ml-inset-bottom:0px;--ml-inset-left:0px;--ml-kb-top:0px;--ml-kb-right:0px;--ml-kb-bottom:0px;--ml-kb-left:0px;--ml-kb-width:0px;--ml-kb-height:0px}}</style><style id=\"ml-opt\"></style><script>{INJECT_JS}</script>"
+    )
+}
 
 struct Proxy {
     port: u16,
@@ -500,31 +508,23 @@ fn dechunk_step(raw: &mut Vec<u8>, out: &mut Vec<u8>) -> bool {
     done
 }
 
-fn replace_safe_area(src: &[u8]) -> Vec<u8> {
-    const N: &[u8] = b"env(safe-area-inset-";
+fn replace_all(src: &[u8], needle: &[u8], with: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(src.len());
     let mut i = 0;
-    while let Some(j) = find(src, N, i) {
-        let rest = &src[j + N.len()..];
-        let (side, len) = if rest.starts_with(b"top") {
-            ("t", 3)
-        } else if rest.starts_with(b"right") {
-            ("r", 5)
-        } else if rest.starts_with(b"bottom") {
-            ("b", 6)
-        } else if rest.starts_with(b"left") {
-            ("l", 4)
-        } else {
-            out.extend_from_slice(&src[i..j + N.len()]);
-            i = j + N.len();
-            continue;
-        };
+    while let Some(j) = find(src, needle, i) {
         out.extend_from_slice(&src[i..j]);
-        out.extend_from_slice(format!("var(--ml-sa{side}").as_bytes());
-        i = j + N.len() + len;
+        out.extend_from_slice(with);
+        i = j + needle.len();
     }
     out.extend_from_slice(&src[i..]);
     out
+}
+
+// env(safe-area-inset-top) -> var(--ml-inset-top), env(keyboard-inset-height) -> var(--ml-kb-height).
+// Only the prefix is swapped, so fallbacks (`, 20px`), calc() and `"env(safe-area-inset-"+side` all keep working.
+fn replace_safe_area(src: &[u8]) -> Vec<u8> {
+    let a = replace_all(src, b"env(safe-area-inset-", b"var(--ml-inset-");
+    replace_all(&a, b"env(keyboard-inset-", b"var(--ml-kb-")
 }
 
 fn inject_html(html: Vec<u8>) -> Vec<u8> {
@@ -541,9 +541,10 @@ fn inject_html(html: Vec<u8>) -> Vec<u8> {
         None
     };
     let pos = tag_end(b"<head").or_else(|| tag_end(b"<html")).unwrap_or(0);
-    let mut out = Vec::with_capacity(html.len() + INJECT.len());
+    let block = inject_block();
+    let mut out = Vec::with_capacity(html.len() + block.len());
     out.extend_from_slice(&html[..pos]);
-    out.extend_from_slice(INJECT.as_bytes());
+    out.extend_from_slice(block.as_bytes());
     out.extend_from_slice(&html[pos..]);
     out
 }
@@ -1339,11 +1340,11 @@ mod tests {
 
     #[test]
     fn rewrites_safe_area_env_to_variables() {
-        let src = b"a{padding:env(safe-area-inset-top)} b{margin:calc(env(safe-area-inset-bottom, 4px) + 1px)} c{x:env(safe-area-inset-left)env(safe-area-inset-right)} d{y:env(safe-area-inset-x)}";
+        let src = b"a{padding:env(safe-area-inset-top)} b{margin:calc(env(safe-area-inset-bottom, 4px) + 1px)} c{x:env(safe-area-inset-left)env(safe-area-inset-right)} k{h:env(keyboard-inset-height)} s=\"env(safe-area-inset-\"+side+\")\"";
         let out = String::from_utf8(replace_safe_area(src)).unwrap();
         assert_eq!(
             out,
-            "a{padding:var(--ml-sat)} b{margin:calc(var(--ml-sab, 4px) + 1px)} c{x:var(--ml-sal)var(--ml-sar)} d{y:env(safe-area-inset-x)}"
+            "a{padding:var(--ml-inset-top)} b{margin:calc(var(--ml-inset-bottom, 4px) + 1px)} c{x:var(--ml-inset-left)var(--ml-inset-right)} k{h:var(--ml-kb-height)} s=\"var(--ml-inset-\"+side+\")\""
         );
         assert_eq!(replace_safe_area(b"no match here"), b"no match here".to_vec());
     }
@@ -1354,6 +1355,7 @@ mod tests {
         let out = String::from_utf8(inject_html(html)).unwrap();
         assert!(out.starts_with("<!DOCTYPE html><html><HEAD lang=x><style id=\"ml-safe\">"));
         assert!(out.contains("</script><meta charset=utf-8>"));
+        assert!(!INJECT_JS.contains("</script"), "the helper must never close its own script tag");
         // no <head>: falls back to after <html>, never before the doctype
         let out = String::from_utf8(inject_html(b"<!doctype html><html><body></body></html>".to_vec())).unwrap();
         assert!(out.starts_with("<!doctype html><html><style"));

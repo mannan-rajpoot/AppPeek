@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import {
   RefreshCw,
   RotateCcw,
@@ -9,6 +10,9 @@ import {
   Minus,
   PanelLeftOpen,
   PictureInPicture2,
+  Keyboard,
+  Ruler,
+  SlidersHorizontal,
 } from "lucide-react";
 import DeviceSelector from "./DeviceSelector.jsx";
 import ConnectionStatus from "./ConnectionStatus.jsx";
@@ -21,6 +25,7 @@ function Btn({
   active,
   disabled,
   rotate,
+  badge,
 }) {
   return (
     <button
@@ -32,7 +37,72 @@ function Btn({
       disabled={disabled}
     >
       <Icon size={16} className={rotate ? "rot90" : ""} />
+      {badge ? <b className="icon-badge">{badge}</b> : null}
     </button>
+  );
+}
+
+// iOS preview options: small dropdown with the settings that change how the page is presented.
+function IosMenu({ ios, onIos, disabled }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const down = (e) => !ref.current?.contains(e.target) && setOpen(false);
+    const key = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+
+  const Item = ({ k, title, hint, invert }) => (
+    <label className="menu-item">
+      <input
+        type="checkbox"
+        checked={invert ? !ios[k] : !!ios[k]}
+        onChange={(e) =>
+          onIos({ [k]: invert ? !e.target.checked : e.target.checked })
+        }
+      />
+      <span>
+        <strong>{title}</strong>
+        <small>{hint}</small>
+      </span>
+    </label>
+  );
+
+  return (
+    <div className="tb-menu" ref={ref}>
+      <Btn
+        icon={SlidersHorizontal}
+        label="iOS preview options"
+        active={open}
+        onClick={() => setOpen((o) => !o)}
+        disabled={disabled}
+      />
+      {open && (
+        <div className="menu" role="menu">
+          <Item
+            k="scroll"
+            title="iOS-style scrolling"
+            hint="Hides scrollbars and stops overscroll chaining"
+          />
+          <Item
+            k="kbResize"
+            title="Shrink page when keyboard opens"
+            hint="Off: the keyboard covers the page, like iOS Safari"
+          />
+          <Item
+            k="reduceMotion"
+            title="Reduce motion (test)"
+            hint="Freezes CSS animations and transitions in the app"
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -53,6 +123,9 @@ export default function PreviewToolbar({
   onZoomFit,
   onFullscreen,
   onFloat,
+  ios,
+  onIos,
+  issueCount = 0,
   onMinimize,
   onRestore,
 }) {
@@ -139,6 +212,35 @@ export default function PreviewToolbar({
         onClick={onFloat}
         disabled={off}
       />
+      <span className="tb-sep" />
+      <Btn
+        icon={Keyboard}
+        label={
+          ios.keyboard === "auto"
+            ? "Keyboard preview: on (shows when an input is focused)"
+            : "Keyboard preview: off"
+        }
+        shortcut="Ctrl+Shift+K shows or hides it"
+        active={ios.keyboard === "auto"}
+        onClick={() =>
+          onIos({ keyboard: ios.keyboard === "auto" ? "off" : "auto" })
+        }
+        disabled={off}
+      />
+      <Btn
+        icon={Ruler}
+        label={
+          ios.inspect
+            ? `Layout inspector: ${issueCount} issue${issueCount === 1 ? "" : "s"} found`
+            : "Layout inspector (safe areas, keyboard)"
+        }
+        shortcut="Ctrl+Shift+L"
+        active={ios.inspect}
+        badge={ios.inspect && issueCount ? issueCount : null}
+        onClick={() => onIos({ inspect: !ios.inspect })}
+        disabled={off}
+      />
+      <IosMenu ios={ios} onIos={onIos} disabled={off} />
       {minimized ? (
         <Btn
           icon={PanelLeftOpen}

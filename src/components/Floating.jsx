@@ -3,10 +3,19 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
-import { Pin, PinOff, RefreshCw, RotateCw, Minimize2, X } from "lucide-react";
+import {
+  Keyboard,
+  Pin,
+  PinOff,
+  RefreshCw,
+  Ruler,
+  RotateCw,
+  Minimize2,
+  X,
+} from "lucide-react";
 import DeviceFrame, { getFrameSize } from "./DeviceFrame.jsx";
 import { getDevice } from "./DeviceSelector.jsx";
-import { PreviewViewport } from "./Emulator.jsx";
+import { PreviewViewport, readIos, writeIos } from "./Emulator.jsx";
 
 // Transparent ring around the phone: it is the drag area and holds the controls.
 export const FLOAT_MARGIN = 30;
@@ -49,6 +58,21 @@ export default function Floating() {
   const [dark, setDark] = useState(false);
   const [refreshes, setRefreshes] = useState(0);
   const [pinned, setPinned] = useState(() => readFloatPrefs().onTop !== false);
+  const [ios, setIos] = useState(readIos);
+  const [kbForce, setKbForce] = useState(false);
+  const [issues, setIssues] = useState(0);
+  const setIosOpt = (patch) =>
+    setIos((prev) => {
+      const next = { ...prev, ...patch };
+      writeIos(next);
+      return next;
+    });
+  const toggleKeyboardNow = () => {
+    if (ios.keyboard !== "auto") {
+      setIosOpt({ keyboard: "auto" });
+      setKbForce(true);
+    } else setKbForce((f) => !f);
+  };
 
   const project = useMemo(() => {
     try {
@@ -186,6 +210,14 @@ export default function Floating() {
     const ctrl = e.ctrlKey || e.metaKey;
     const k = e.key.toLowerCase();
     if (e.key === "Escape") return leave(false);
+    if (ctrl && e.shiftKey && k === "k") {
+      e.preventDefault();
+      return toggleKeyboardNow();
+    }
+    if (ctrl && e.shiftKey && k === "l") {
+      e.preventDefault();
+      return setIosOpt({ inspect: !ios.inspect });
+    }
     if (e.key === "F5" || (ctrl && k === "r")) {
       e.preventDefault();
       return setRefreshes((n) => n + 1);
@@ -276,6 +308,30 @@ export default function Floating() {
         >
           <RefreshCw size={13} />
         </button>
+        <button
+          className={ios.keyboard === "auto" ? "is-on" : ""}
+          title="Keyboard preview (Ctrl+Shift+K shows or hides it)"
+          aria-label="Keyboard preview"
+          aria-pressed={ios.keyboard === "auto"}
+          onClick={() =>
+            setIosOpt({ keyboard: ios.keyboard === "auto" ? "off" : "auto" })
+          }
+        >
+          <Keyboard size={13} />
+        </button>
+        <button
+          className={ios.inspect ? "is-on" : ""}
+          title={
+            ios.inspect
+              ? `Layout inspector: ${issues} issue(s)`
+              : "Layout inspector (Ctrl+Shift+L)"
+          }
+          aria-label="Layout inspector"
+          aria-pressed={ios.inspect}
+          onClick={() => setIosOpt({ inspect: !ios.inspect })}
+        >
+          <Ruler size={13} />
+        </button>
         <button title="Rotate" aria-label="Rotate" onClick={rotate}>
           <RotateCw size={13} />
         </button>
@@ -318,6 +374,10 @@ export default function Floating() {
           server={server}
           onTone={setDark}
           floating
+          ios={ios}
+          kbForce={kbForce}
+          onKbHide={() => setKbForce(false)}
+          onIssues={setIssues}
         />
       </DeviceFrame>
 

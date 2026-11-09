@@ -29,6 +29,51 @@ export function getFrameSize(device, landscape) {
   };
 }
 
+// Protected system areas in screen coordinates (points), most specific first:
+// cutout, status bar, landscape side insets, home-indicator band. Used by the layout inspector.
+export function getZones(device, landscape) {
+  const W = landscape ? device.height : device.width;
+  const H = landscape ? device.width : device.height;
+  const s = landscape ? device.safeLandscape : device.safe;
+  const c = device.cutout;
+  const zones = [];
+  if (c) {
+    const tw = c.width + c.ear * 2;
+    if (device.hardware === "notch") {
+      zones.push(
+        landscape
+          ? { kind: "notch", x: 0, y: (H - tw) / 2, w: c.height, h: tw }
+          : { kind: "notch", x: (W - tw) / 2, y: 0, w: tw, h: c.height },
+      );
+    } else {
+      zones.push(
+        landscape
+          ? {
+              kind: "island",
+              x: c.top,
+              y: (H - c.width) / 2,
+              w: c.height,
+              h: c.width,
+            }
+          : {
+              kind: "island",
+              x: (W - c.width) / 2,
+              y: c.top,
+              w: c.width,
+              h: c.height,
+            },
+      );
+    }
+  }
+  if (s.top) zones.push({ kind: "status", x: 0, y: 0, w: W, h: s.top });
+  if (s.left) zones.push({ kind: "side", x: 0, y: 0, w: s.left, h: H });
+  if (s.right)
+    zones.push({ kind: "side", x: W - s.right, y: 0, w: s.right, h: H });
+  if (s.bottom)
+    zones.push({ kind: "home", x: 0, y: H - s.bottom, w: W, h: s.bottom });
+  return zones;
+}
+
 /* ───────── iOS status-bar glyphs ───────── */
 function SignalBars({ h = 11 }) {
   return (
