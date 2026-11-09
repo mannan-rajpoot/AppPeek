@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "MobileLab main and floating simulator windows",
+  "description": "AppPeek main and floating simulator windows",
   "windows": ["main", "floating"],
   "permissions": [
     "core:default",
@@ -12,6 +12,12 @@
     "core:window:allow-set-position",
     "core:window:allow-outer-position",
     "core:window:allow-scale-factor",
-    "core:window:allow-set-fullscreen"
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-close"
   ]
 }

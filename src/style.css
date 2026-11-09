@@ -2686,3 +2686,425 @@ body {
     grid-column: 2;
   }
 }
+
+/* ───────── AppPeek: transparent custom title bar ─────────
+   The native title bar is off (decorations: false). This bar floats over the top of the page,
+   fully transparent, so the Home glow / dot grid and the simulator background run straight
+   through it. Each screen reserves --tb of space at its top so nothing sits under the bar. */
+:root {
+  --tb: 36px;
+}
+.titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 200; /* above the intro overlay (100) */
+  height: var(--tb);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  color: var(--text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.titlebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  padding-left: 14px;
+  flex: 1;
+}
+.titlebar-brand > * {
+  pointer-events: none; /* clicks fall through to the drag region */
+}
+.titlebar-controls {
+  display: flex;
+  height: 100%;
+}
+.titlebar-controls button {
+  width: 46px;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: inherit;
+  background: transparent;
+  cursor: default;
+  transition: background 0.15s;
+}
+.titlebar-controls button:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+.titlebar-controls button:active {
+  background: rgba(0, 0, 0, 0.12);
+}
+.titlebar-controls button.close:hover {
+  background: #e5484d;
+  color: #fff;
+}
+.titlebar-controls button:focus-visible {
+  outline-offset: -3px;
+}
+
+/* Logo + name: the real AppPeek mark (cropped tight, fully drawn) beside a light name. */
+.titlebar-brand {
+  gap: 7px;
+  padding-left: 16px;
+  color: #525252;
+}
+.titlebar-brand svg {
+  display: block;
+  flex: none;
+  color: #6b6b6b;
+}
+.titlebar-brand span {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 17px;
+  color: #525252;
+}
+.titlebar-brand .logo-stroke {
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-dasharray: none;
+  stroke-dashoffset: 0;
+  animation: none;
+  opacity: 1;
+}
+
+/* Screens start below the bar; their own backgrounds extend underneath it. */
+.home,
+.emulator {
+  padding-top: var(--tb);
+}
+.emulator {
+  background: var(--bg);
+}
+
+/* Full-screen preview hides the bar and uses the whole window. */
+body:has(.emulator.is-fullscreen) .titlebar {
+  display: none;
+}
+.emulator.is-fullscreen {
+  padding-top: 0;
+}
+
+/* ───────── Phase 16: tighter Home logo gap + refined simulator workspace ─────────
+   The logo SVG has ~6px of empty space on each side of the phone outline, so the
+   flex gap is pulled in to make the mark and the name read as one lockup. */
+.home .brand {
+  gap: 3px;
+}
+.home .brand svg {
+  margin-left: -4px;
+}
+.home .brand span {
+  padding-top: 1px;
+}
+
+/* the simulator uses the same canvas as Home: soft glow + faded dot grid */
+.emulator {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(
+      ellipse 70% 50% at 50% 0%,
+      rgba(0, 0, 0, 0.05),
+      transparent 72%
+    ),
+    var(--bg);
+}
+.emulator::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(#d6d6d6 1px, transparent 1px) 0 0 / 24px 24px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 80% 75% at 50% 45%,
+    #000 20%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 80% 75% at 50% 45%,
+    #000 20%,
+    transparent 100%
+  );
+  animation: fade 1s 0.1s ease both;
+}
+
+/* header: transparent, like Home */
+.em-header {
+  height: 56px;
+  padding: 0 20px 0 14px;
+  gap: 14px;
+  background: transparent;
+  border-bottom: 0;
+  box-shadow: none;
+}
+.em-title {
+  gap: 10px;
+  align-items: center;
+}
+.em-title strong {
+  font-size: 15px;
+  letter-spacing: -0.02em;
+}
+.em-title span {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.em-header .btn-ghost {
+  height: 32px;
+  padding: 0 10px 0 6px;
+  color: var(--muted);
+}
+.em-header .btn-ghost:hover:not(:disabled) {
+  color: var(--text);
+}
+.em-header .btn-ghost svg {
+  transition: transform 0.3s var(--ease-out);
+}
+.em-header .btn-ghost:hover svg {
+  transform: translateX(-2px);
+}
+.em-actions {
+  gap: 8px;
+}
+.em-actions .btn {
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 8px;
+}
+
+/* toolbar: one floating, centred pill */
+.toolbar {
+  position: relative;
+  z-index: 6;
+  align-self: center;
+  width: fit-content;
+  max-width: calc(100% - 32px);
+  min-height: 44px;
+  margin: 0 16px 12px;
+  padding: 6px 10px;
+  gap: 2px;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  backdrop-filter: saturate(1.4) blur(10px);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 28px -16px rgba(0, 0, 0, 0.2);
+}
+.toolbar .tb-grow {
+  display: none;
+}
+.toolbar .tb-sep {
+  height: 20px;
+  margin: 0 8px;
+}
+.toolbar .icon-btn,
+.toolbar .zoom-label {
+  border-radius: 8px;
+}
+.toolbar .icon-btn.is-active {
+  box-shadow: 0 2px 6px -1px rgba(0, 0, 0, 0.3);
+}
+.toolbar .select {
+  border-radius: 8px;
+  height: 30px;
+}
+
+/* problem banner: a rounded card instead of a full-width strip */
+.notice {
+  margin: 0 16px 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
+}
+.notice-bad {
+  border-color: #f3d4d0;
+}
+.notice-warn {
+  border-color: #efe3bd;
+}
+
+/* dock: floating rail */
+.em-body {
+  gap: 12px;
+  padding: 0 16px 4px;
+}
+.dock {
+  width: 68px;
+  gap: 10px;
+  padding: 12px 0;
+  align-self: stretch;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow-sm);
+}
+.dock-main {
+  border-radius: 10px;
+}
+.dock-item.is-active .dock-main {
+  background: var(--black);
+  border-color: var(--black);
+  color: #fff;
+  box-shadow: 0 4px 10px -3px rgba(0, 0, 0, 0.4);
+}
+.dock-add {
+  border-radius: 10px;
+}
+
+/* stage: a soft, rounded workspace with a spotlight behind the phone */
+.stage {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.03),
+    var(--shadow-sm);
+  background:
+    radial-gradient(
+      ellipse 55% 55% at 50% 50%,
+      rgba(255, 255, 255, 0.95),
+      rgba(255, 255, 255, 0) 100%
+    ),
+    radial-gradient(#d9d9d9 1px, transparent 1px) 0 0 / 20px 20px,
+    #f4f4f4;
+}
+.stage-inner {
+  animation: stage-in 0.6s var(--ease-out) both;
+}
+.stage-note {
+  border-radius: 14px;
+}
+
+/* footer: quiet and transparent */
+.em-footer {
+  padding: 10px 24px 12px;
+  background: transparent;
+  border-top: 0;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.em-footer .muted {
+  color: var(--faint);
+}
+.em-footer .low-mem {
+  color: var(--muted);
+}
+
+/* entrance: parts rise in one after another, like Home */
+.em-header {
+  animation: bar-in 0.7s var(--ease-out) backwards;
+}
+.toolbar {
+  animation: rise 0.7s 0.08s var(--ease-out) backwards;
+}
+.dock {
+  animation: dock-in 0.7s 0.16s var(--ease-out) backwards;
+}
+.stage {
+  animation: stage-frame-in 0.7s 0.2s var(--ease-out) backwards;
+}
+.em-footer {
+  animation: fade 0.8s 0.5s ease backwards;
+}
+@keyframes dock-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+@keyframes stage-frame-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+}
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+/* low-spec keeps things flat and quiet */
+.low-spec .stage {
+  background: #f4f4f4;
+}
+.low-spec .toolbar {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.low-spec .em-header,
+.low-spec .toolbar,
+.low-spec .dock,
+.low-spec .stage,
+.low-spec .em-footer,
+.low-spec .emulator::before {
+  animation: none;
+}
+
+/* full screen: no panels, the phone gets the whole window */
+.emulator.is-fullscreen::before {
+  display: none;
+}
+.emulator.is-fullscreen .em-body {
+  padding: 0;
+  gap: 0;
+}
+.emulator.is-fullscreen .stage {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  animation: none;
+}
+
+@media (max-width: 760px) {
+  .em-header {
+    padding: 0 12px 0 8px;
+  }
+  .em-body {
+    padding: 0 10px 4px;
+    gap: 8px;
+  }
+  .toolbar,
+  .notice {
+    margin-left: 10px;
+    margin-right: 10px;
+  }
+  .em-footer {
+    padding: 8px 14px 10px;
+  }
+}
+
+/* ───────── Phase 17: dock shows icons only (no iOS model names) ───────── */
+.dock-main span {
+  display: none;
+}
+.dock-main {
+  height: 46px;
+}
+
+/* ───────── Phase 18: sidebar (dock) removed ───────── */
+.dock {
+  display: none;
+}

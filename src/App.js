@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, ask } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import TitleBar from "./components/TitleBar.jsx";
 import Intro from "./components/Intro.jsx";
 import Home from "./components/Home.jsx";
 import Emulator from "./components/Emulator.jsx";
@@ -467,6 +468,8 @@ function Workspace() {
 
   return (
     <>
+      {/* Transparent custom title bar: floats over the page so the background shows through. */}
+      <TitleBar />
       {/* The workspace stays mounted (just hidden) while you visit Home, so running simulators keep their state. */}
       {active && (
         <div
