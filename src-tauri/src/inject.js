@@ -210,7 +210,12 @@
     "input,textarea,select,[contenteditable],[role=textbox]{outline:none!important;outline-width:0!important;box-shadow:none!important;-webkit-appearance:none;appearance:none}" +
     "input:focus,input:focus-visible,textarea:focus,textarea:focus-visible,[contenteditable]:focus,[contenteditable]:focus-visible,[role=textbox]:focus{outline:none!important;box-shadow:none!important}" +
     "*:focus,*:focus-visible{outline:none!important}" +
-    "input::-ms-reveal,input::-ms-clear,input::-webkit-credentials-auto-fill-button{display:none!important}";
+    "input::-ms-reveal,input::-ms-clear,input::-webkit-credentials-auto-fill-button{display:none!important}" +
+    /* Like a real phone: static text, images and buttons cannot be selected or long-press-copied,
+       while text fields (TextInput) stay fully selectable and editable. */
+    "html,body,*{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}" +
+    "input,textarea,[contenteditable],[contenteditable] *,[role=textbox]{-webkit-user-select:text!important;user-select:text!important}" +
+    "img,svg,a{-webkit-user-drag:none!important}";
   var CSS_MOTION =
     "*,*::before,*::after{animation-duration:.001ms!important;animation-delay:0s!important;transition-duration:.001ms!important;transition-delay:0s!important;scroll-behavior:auto!important}";
   function setOptions(o) {
@@ -222,6 +227,73 @@
         (o.reduceMotion ? CSS_MOTION : "");
   }
   setOptions({ scroll: true });
+
+  /* ── 2b. no text selection / copy / context menu outside text fields (mobile behaviour).
+        CSS above handles normal cases; these events cover Ctrl+A, Ctrl+C, drag-select,
+        right-click and dragging images or links. ── */
+  function inField(t) {
+    for (
+      var el = t && t.nodeType === 3 ? t.parentElement : t;
+      el;
+      el = el.parentElement
+    ) {
+      if (el.nodeType === 1 && isEditable(el)) return true;
+    }
+    return false;
+  }
+  function clearSelection() {
+    try {
+      var s = window.getSelection && window.getSelection();
+      if (s && s.rangeCount && !inField(document.activeElement))
+        s.removeAllRanges();
+    } catch (e) {}
+  }
+  addEventListener(
+    "selectstart",
+    function (e) {
+      if (!inField(e.target)) e.preventDefault();
+    },
+    true,
+  );
+  addEventListener(
+    "contextmenu",
+    function (e) {
+      e.preventDefault();
+    },
+    true,
+  );
+  addEventListener(
+    "dragstart",
+    function (e) {
+      if (!inField(e.target)) e.preventDefault();
+    },
+    true,
+  );
+  ["copy", "cut"].forEach(function (n) {
+    addEventListener(
+      n,
+      function (e) {
+        if (!inField(document.activeElement)) e.preventDefault();
+      },
+      true,
+    );
+  });
+  addEventListener(
+    "keydown",
+    function (e) {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        var k = String(e.key).toLowerCase();
+        if (
+          (k === "a" || k === "c" || k === "x") &&
+          !inField(document.activeElement)
+        )
+          e.preventDefault();
+      }
+    },
+    true,
+  );
+  addEventListener("mouseup", clearSelection, true);
+  addEventListener("dblclick", clearSelection, true);
 
   /* ── 3. keyboard: CSS variables + a visualViewport that shrinks like Safari's ── */
   if (vv) {
