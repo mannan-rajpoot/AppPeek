@@ -27,6 +27,7 @@ const ACTIVE = ["starting", "running", "lost"];
 
 const RECENT_KEY = "mobilelab.recent";
 const PROJECT_KEY = "mobilelab.project";
+const SYNC_KEY = "mobilelab.vscodeSync"; // VS Code sync is on unless the user turned it off
 
 const inTauri = () =>
   typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
@@ -92,6 +93,22 @@ function writeSavedProject(path) {
   }
 }
 
+function readSyncPref() {
+  try {
+    return localStorage.getItem(SYNC_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+
+function writeSyncPref(on) {
+  try {
+    localStorage.setItem(SYNC_KEY, on ? "on" : "off");
+  } catch {
+    /* ignore */
+  }
+}
+
 function Workspace() {
   const [screen, setScreen] = useState("home"); // home | emulator
   // The intro is an overlay: Home mounts when it starts fading, the overlay is removed when done.
@@ -105,6 +122,8 @@ function Workspace() {
   const [server, setServer] = useState(STOPPED);
   const [notice, setNotice] = useState(null); // { tone, message, hint }
   const [floatingId, setFloatingId] = useState(null); // session shown in the floating window
+  const [syncOn, setSyncOn] = useState(readSyncPref); // follow the project's VS Code window
+  const [syncState, setSyncState] = useState("off"); // off | searching | following | minimized | closed | unsupported
   const floatRef = useRef(null);
   const floatHandler = useRef(null);
   const nextId = useRef(1);
@@ -191,6 +210,40 @@ function Workspace() {
       if (unlisten) unlisten();
     };
   }, []);
+
+  /* ───────── VS Code sync ─────────
+     The backend follows ONLY the VS Code window of the connected project: minimizing it hides the
+     floating simulator, restoring it brings it back, closing it closes the simulator and returns
+     to this screen. Other VS Code windows are never touched. */
+  useEffect(() => {
+    if (!inTauri()) return;
+    let dead = false;
+    let unlisten = null;
+    listen("vscode-sync", (e) => setSyncState(e.payload.state)).then((fn) => {
+      if (dead) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      dead = true;
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  const syncFolder = project
+    ? project.path.split(/[\\/]/).filter(Boolean).pop() || null
+    : null;
+  useEffect(() => {
+    if (!inTauri()) return;
+    if (syncFolder && syncOn)
+      invoke("vscode_sync_start", { folder: syncFolder }).catch(() => {});
+    else invoke("vscode_sync_stop").catch(() => {});
+  }, [syncFolder, syncOn]);
+
+  const toggleSync = () => {
+    const next = !syncOn;
+    setSyncOn(next);
+    writeSyncPref(next);
+  };
 
   const loadProject = async (path, { silent = false } = {}) => {
     try {
@@ -446,6 +499,7 @@ function Workspace() {
     const id = floatRef.current;
     floatRef.current = null;
     setFloatingId(null);
+    setDir("fade"); // the dashboard fades back in (also when VS Code was closed)
     if (id == null) return;
     if (p.closeSession) closeSession(id);
     else if (typeof p.landscape === "boolean")
@@ -475,7 +529,7 @@ function Workspace() {
         <div
           className={
             showEmulator
-              ? `screen-enter dir-${dir}${leaving ? " is-leaving" : ""}`
+              ? `screen-enter dir-${dir}${leaving ? " is-leaving" : ""}${floatingId != null ? " is-away" : ""}`
               : ""
           }
           style={showEmulator ? undefined : { display: "none" }}
@@ -496,6 +550,9 @@ function Workspace() {
             onCopyLog={copyLog}
             floatingId={floatingId}
             onFloat={openFloating}
+            vscodeSync={syncOn}
+            syncState={syncOn ? syncState : "off"}
+            onToggleSync={toggleSync}
             onUpdate={(patch) => updateSession(active.id, patch)}
             onSwitchDevice={(deviceId) => switchDevice(active.id, deviceId)}
             onActivate={activate}

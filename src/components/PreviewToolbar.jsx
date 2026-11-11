@@ -13,6 +13,8 @@ import {
   Keyboard,
   Ruler,
   SlidersHorizontal,
+  Link2,
+  Link2Off,
 } from "lucide-react";
 import DeviceSelector from "./DeviceSelector.jsx";
 import ConnectionStatus from "./ConnectionStatus.jsx";
@@ -26,6 +28,7 @@ function Btn({
   disabled,
   rotate,
   badge,
+  dot,
 }) {
   return (
     <button
@@ -38,6 +41,7 @@ function Btn({
     >
       <Icon size={16} className={rotate ? "rot90" : ""} />
       {badge ? <b className="icon-badge">{badge}</b> : null}
+      {dot ? <i className={`sync-dot is-${dot}`} /> : null}
     </button>
   );
 }
@@ -106,6 +110,18 @@ function IosMenu({ ios, onIos, disabled }) {
   );
 }
 
+// VS Code sync: what the toolbar button says for each state reported by the backend.
+const SYNC_LABEL = {
+  off: "VS Code sync: off",
+  searching: "VS Code sync: waiting for this project's VS Code window",
+  following:
+    "VS Code sync: on (the simulator follows this project's VS Code window)",
+  minimized: "VS Code sync: VS Code is minimized",
+  closed: "VS Code sync: VS Code was closed",
+  unsupported: "VS Code sync is available on Windows only",
+};
+const SYNC_DOT = { following: "on", minimized: "warn", searching: "wait" };
+
 export default function PreviewToolbar({
   device,
   landscape,
@@ -123,6 +139,9 @@ export default function PreviewToolbar({
   onZoomFit,
   onFullscreen,
   onFloat,
+  vscodeSync = true,
+  syncState = "off",
+  onToggleSync,
   ios,
   onIos,
   issueCount = 0,
@@ -130,6 +149,15 @@ export default function PreviewToolbar({
   onRestore,
 }) {
   const off = minimized;
+  const syncUnsupported = syncState === "unsupported";
+  const syncLabel = syncUnsupported
+    ? SYNC_LABEL.unsupported
+    : !project
+      ? "VS Code sync (connect a project first)"
+      : vscodeSync
+        ? SYNC_LABEL[syncState === "off" ? "searching" : syncState] ||
+          SYNC_LABEL.searching
+        : SYNC_LABEL.off;
   return (
     <div className="toolbar" role="toolbar" aria-label="Simulator controls">
       <DeviceSelector
@@ -211,6 +239,14 @@ export default function PreviewToolbar({
         shortcut="Ctrl+Shift+P"
         onClick={onFloat}
         disabled={off}
+      />
+      <Btn
+        icon={vscodeSync ? Link2 : Link2Off}
+        label={syncLabel}
+        active={vscodeSync && !!project && !syncUnsupported}
+        dot={vscodeSync && project ? SYNC_DOT[syncState] : null}
+        onClick={onToggleSync}
+        disabled={!project || syncUnsupported}
       />
       <span className="tb-sep" />
       <Btn

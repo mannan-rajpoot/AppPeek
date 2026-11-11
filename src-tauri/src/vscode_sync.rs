@@ -34,7 +34,15 @@ pub fn title_score(title: &str, folder: &str) -> u8 {
         return 0;
     }
     let t = title.to_lowercase();
-    if t.split(" - ").any(|seg| seg.trim().trim_start_matches('●').trim() == folder) {
+    // "my-app", or "my-app [WSL: Ubuntu]" / "my-app (Workspace)" / "my-app [Administrator]"
+    let is_folder = |seg: &str| {
+        let s = seg.trim().trim_start_matches('●').trim();
+        s == folder
+            || s.strip_prefix(folder.as_str())
+                .map(|rest| rest.starts_with(" [") || rest.starts_with(" ("))
+                .unwrap_or(false)
+    };
+    if t.split(" - ").any(is_folder) {
         2
     } else if t.contains(&folder) {
         1
@@ -95,13 +103,22 @@ impl Debounce {
             self.stable = Some(now); // first reading: just learn it, never act on it
             return None;
         }
+        // A destroyed window never comes back, so a close is confirmed on the first reading:
+        // the floating simulator leaves in real time, with no extra poll of delay.
+        if now == WinState::Closed {
+            let prev = self.stable;
+            self.stable = Some(now);
+            self.pending = None;
+            self.seen = 0;
+            return Some((prev, now));
+        }
         if self.pending == Some(now) {
             self.seen += 1;
         } else {
             self.pending = Some(now);
             self.seen = 1;
         }
-        // Closed is final enough to confirm quickly; minimize/restore wait for two polls.
+        // minimize/restore wait for two polls in a row (about 40 ms while floating).
         if self.seen >= 2 {
             let prev = self.stable;
             self.stable = Some(now);
@@ -121,7 +138,7 @@ pub struct SyncPayload {
     pub state: &'static str,
 }
 
-fn emit(app: &AppHandle, state: &'static str) {
+pub fn emit(app: &AppHandle, state: &'static str) {
     let _ = app.emit("vscode-sync", SyncPayload { state });
 }
 
@@ -135,10 +152,6 @@ impl Drop for SyncHandle {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst); // the thread notices, restores the window and exits
     }
-}
-
-pub fn supported() -> bool {
-    cfg!(windows)
 }
 
 /* ───────────── Windows implementation ───────────── */
@@ -314,8 +327,16 @@ mod win {
 
         while !stop.load(Ordering::SeqCst) {
             let floating = floating_hwnd(&app);
-            // Gentle when nothing is floating; responsive when it is.
-            thread::sleep(Duration::from_millis(if floating.is_some() { 250 } else { 800 }));
+            // Real time while the simulator floats (checking one window's state costs almost
+            // nothing); relaxed otherwise, and slow only while still searching for the window.
+            let wait = if bound.is_none() {
+                800
+            } else if floating.is_some() {
+                20
+            } else {
+                100
+            };
+            thread::sleep(Duration::from_millis(wait));
             if stop.load(Ordering::SeqCst) {
                 break;
             }
@@ -323,9 +344,9 @@ mod win {
             // 1. Find the window to follow (project folder first), until we have one.
             if bound.is_none() {
                 let list = list_vscode();
-                // Only auto-bind to something we can justify: a folder match, or the only window.
-                let has_match = list.iter().any(|(_, t)| title_score(t, &folder) > 0);
-                if has_match || list.len() == 1 {
+                // Bind ONLY to the window whose folder is the connected project. Every other VS Code
+                // window is never touched, so it keeps working on its own.
+                if list.iter().any(|(_, t)| title_score(t, &folder) == 2) {
                     bound = pick_window(&list, &folder);
                     deb = Debounce::new();
                     gone_ticks = 0;
@@ -374,7 +395,7 @@ mod win {
             if gone_ticks > 0 {
                 if floating.is_some() {
                     gone_ticks += 1;
-                    if gone_ticks > 8 {
+                    if gone_ticks > 60 {
                         gone_ticks = 0;
                         if let Some(w) = app.get_webview_window("floating") {
                             let _ = w.destroy(); // window-event handler brings the dashboard back
@@ -391,9 +412,10 @@ mod win {
             }
         }
 
-        // Disabled or AppPeek closing: never leave the simulator hidden behind.
+        // Disabled, replaced or AppPeek closing: never leave the simulator hidden behind.
+        // ("off" is reported by the stop command, so an old watcher can never overwrite the
+        // status of the one that replaced it.)
         restore_if_hidden(&mut hidden_by_sync);
-        emit(&app, "off");
     }
 }
 
@@ -424,6 +446,9 @@ mod tests {
         assert_eq!(title_score("my-app-old.js - other - Visual Studio Code", "my-app"), 1);
         assert_eq!(title_score("a - other - Visual Studio Code", "my-app"), 0);
         assert_eq!(title_score("anything", ""), 0);
+        assert_eq!(title_score("a.js - my-app [WSL: Ubuntu] - Visual Studio Code", "my-app"), 2);
+        assert_eq!(title_score("a.js - my-app (Workspace) - Visual Studio Code", "my-app"), 2);
+        assert_eq!(title_score("a.js - my-app-2 - Visual Studio Code", "my-app"), 1); // never auto-bound
     }
 
     #[test]
@@ -462,7 +487,8 @@ mod tests {
         assert_eq!(d.feed(Restored), None);
         assert_eq!(d.feed(Minimized), None);
         assert_eq!(d.feed(Minimized), Some((Some(Restored), Minimized)));
-        assert_eq!(d.feed(Closed), None);
+        // a close is final: confirmed on the first reading
         assert_eq!(d.feed(Closed), Some((Some(Minimized), Closed)));
+        assert_eq!(d.feed(Closed), None);
     }
 }

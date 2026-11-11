@@ -23,6 +23,8 @@ use std::os::windows::process::CommandExt;
 #[cfg(unix)]
 use std::os::unix::process::CommandExt;
 
+mod vscode_sync; // follows the VS Code window of the connected project (Windows)
+
 const FIRST_PORT: u16 = 8081;
 const LAST_PORT: u16 = 8099;
 const UPSTREAM_FIRST: u16 = 8100; // Metro's own port when it sits behind the preview proxy
@@ -102,6 +104,7 @@ struct Inner {
     log: VecDeque<String>,
     float_cfg: Option<FloatCfg>,
     float_exit: Option<FloatExit>,
+    sync: Option<vscode_sync::SyncHandle>, // dropping it stops the VS Code watcher
 }
 
 #[derive(Clone, Default)]
@@ -1162,6 +1165,27 @@ async fn exit_floating(
     Ok(())
 }
 
+/* ───────────── VS Code sync ─────────────
+   Starts (or replaces) the watcher for the VS Code window of `folder`, the connected project.
+   Only that one window is followed; every other VS Code window is left alone. */
+
+#[tauri::command]
+fn vscode_sync_start(app: AppHandle, state: State<'_, AppState>, folder: String) -> bool {
+    let old = state.0.lock().unwrap().sync.take();
+    drop(old); // stops the previous watcher first
+    let handle = vscode_sync::start(app, folder);
+    let on = handle.is_some();
+    state.0.lock().unwrap().sync = handle;
+    on
+}
+
+#[tauri::command]
+fn vscode_sync_stop(app: AppHandle, state: State<'_, AppState>) {
+    let old = state.0.lock().unwrap().sync.take();
+    drop(old); // the watcher brings the simulator back if it had hidden it
+    vscode_sync::emit(&app, "off");
+}
+
 // Last lines printed by Expo, so the UI can offer "Copy log" on errors.
 #[tauri::command]
 fn get_log(state: State<'_, AppState>) -> Vec<String> {
@@ -1223,13 +1247,16 @@ pub fn run() {
             system_memory_mb,
             open_floating,
             floating_config,
-            exit_floating
+            exit_floating,
+            vscode_sync_start,
+            vscode_sync_stop
         ])
         .build(tauri::generate_context!())
         .expect("error while building MobileLab")
         .run(|app, event| {
             // Never leave an Expo process behind when MobileLab closes.
             if let RunEvent::Exit = event {
+                let _ = app.state::<AppState>().0.lock().unwrap().sync.take();
                 stop_inner(app.state::<AppState>().inner());
             }
         });

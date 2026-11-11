@@ -3108,3 +3108,33 @@ body:has(.emulator.is-fullscreen) .titlebar {
 .dock {
   display: none;
 }
+
+/* ───────── VS Code sync ───────── */
+/* While the simulator floats, the hidden dashboard waits invisible; when it returns the normal
+   screen-in animation plays again, so coming back from VS Code closing feels like a fade. */
+.screen-enter.is-away {
+  animation: none;
+  opacity: 0;
+  pointer-events: none;
+}
+.sync-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #a3a3a3;
+  box-shadow: 0 0 0 1.5px #fff;
+  pointer-events: none;
+  transition: background 0.2s;
+}
+.icon-btn.is-active .sync-dot {
+  box-shadow: 0 0 0 1.5px var(--black);
+}
+.sync-dot.is-on {
+  background: #16a34a;
+}
+.sync-dot.is-warn {
+  background: #d97706;
+}

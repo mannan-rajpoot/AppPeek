@@ -121,6 +121,7 @@ export default function Floating() {
   useEffect(() => {
     let dead = false;
     let un = null;
+    let unSync = null;
     invoke("floating_config").then((c) => {
       if (dead || !c) return;
       setCfg(c);
@@ -130,12 +131,18 @@ export default function Floating() {
     listen("server-state", (e) => setServer(e.payload)).then((fn) =>
       dead ? fn() : (un = fn),
     );
+    // VS Code sync: the project's VS Code window was closed, so the simulator leaves with it
+    // (the dashboard comes back with the orientation kept).
+    listen("vscode-sync", (e) => {
+      if (e.payload?.state === "closed") leave(false);
+    }).then((fn) => (dead ? fn() : (unSync = fn)));
     invoke("server_status")
       .then((s) => !dead && setServer(s))
       .catch(() => {});
     return () => {
       dead = true;
       if (un) un();
+      if (unSync) unSync();
     };
   }, []);
 

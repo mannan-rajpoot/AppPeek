@@ -417,6 +417,9 @@ export default function Emulator({
   onCopyLog,
   floatingId = null,
   onFloat,
+  vscodeSync = true,
+  syncState = "off",
+  onToggleSync,
   onUpdate,
   onSwitchDevice,
   onActivate,
@@ -685,6 +688,9 @@ export default function Emulator({
         onZoomFit={() => onUpdate({ zoom: "fit" })}
         onFullscreen={() => setFullscreen((f) => !f)}
         onFloat={() => onFloat(pct)}
+        vscodeSync={vscodeSync}
+        syncState={syncState}
+        onToggleSync={onToggleSync}
         ios={ios}
         onIos={setIosOpt}
         issueCount={issueCounts[session.id] || 0}
