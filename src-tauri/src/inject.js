@@ -203,17 +203,21 @@
 
   /* ── 2. options: iOS-style scrolling, reduced motion (test) ── */
   var CSS_SCROLL =
-    "html,body{overscroll-behavior:none}*{-webkit-tap-highlight-color:transparent;scrollbar-width:none}::-webkit-scrollbar{display:none}";
+    "html,body{overscroll-behavior:none}*{-webkit-tap-highlight-color:transparent}";
   /* Always on: no browser focus ring / box on inputs (your app draws its own focus state), and no
      native widget chrome, so TextInput looks the same as on a real iPhone. */
   var CSS_BASE =
-    "input,textarea,select,[contenteditable],[role=textbox]{outline:none!important;outline-width:0!important;box-shadow:none!important;-webkit-appearance:none;appearance:none}" +
-    "input:focus,input:focus-visible,textarea:focus,textarea:focus-visible,[contenteditable]:focus,[contenteditable]:focus-visible,[role=textbox]:focus{outline:none!important;box-shadow:none!important}" +
+    /* iOS has no visible scrollbars. !important + html/body/* so neither the page nor a ScrollView can show one;
+       always on (not tied to the scroll option). Scrolling itself is untouched. */
+    "html,body,*{scrollbar-width:none!important;-ms-overflow-style:none!important}" +
+    "::-webkit-scrollbar,*::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;background:transparent!important}" +
+    "input,textarea,select,[contenteditable],[role=textbox]{outline:none!important;outline-width:0!important;-webkit-appearance:none;appearance:none}" +
+    "input:focus,input:focus-visible,textarea:focus,textarea:focus-visible,[contenteditable]:focus,[contenteditable]:focus-visible,[role=textbox]:focus{outline:none!important}" +
     "*:focus,*:focus-visible{outline:none!important}" +
     "input::-ms-reveal,input::-ms-clear,input::-webkit-credentials-auto-fill-button{display:none!important}" +
     /* Like a real phone: static text, images and buttons cannot be selected or long-press-copied,
        while text fields (TextInput) stay fully selectable and editable. */
-    "html,body,*{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}" +
+    "html,body,*{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}" +
     "input,textarea,[contenteditable],[contenteditable] *,[role=textbox]{-webkit-user-select:text!important;user-select:text!important}" +
     "img,svg,a{-webkit-user-drag:none!important}";
   var CSS_MOTION =
@@ -244,14 +248,32 @@
   function clearSelection() {
     try {
       var s = window.getSelection && window.getSelection();
-      if (s && s.rangeCount && !inField(document.activeElement))
+      if (
+        s &&
+        s.rangeCount &&
+        !inField(document.activeElement) &&
+        !selectable(s.anchorNode)
+      )
         s.removeAllRanges();
     } catch (e) {}
+  }
+  /* Text the developer made selectable (RN `selectable` / userSelect: "text") computes to
+     user-select:text because RN-web's class beats our zero-specificity default; leave it alone. */
+  function selectable(t) {
+    try {
+      var el = t && t.nodeType === 3 ? t.parentElement : t;
+      if (!el || el.nodeType !== 1) return false;
+      var cs = getComputedStyle(el);
+      var us = cs.userSelect || cs.webkitUserSelect;
+      return us === "text" || us === "all";
+    } catch (e) {
+      return false;
+    }
   }
   addEventListener(
     "selectstart",
     function (e) {
-      if (!inField(e.target)) e.preventDefault();
+      if (!inField(e.target) && !selectable(e.target)) e.preventDefault();
     },
     true,
   );
@@ -273,7 +295,11 @@
     addEventListener(
       n,
       function (e) {
-        if (!inField(document.activeElement)) e.preventDefault();
+        if (
+          !inField(document.activeElement) &&
+          !selectable(getSelection().anchorNode)
+        )
+          e.preventDefault();
       },
       true,
     );
@@ -609,17 +635,40 @@
   }
   function sampleTheme() {
     try {
-      var el =
-        document.elementFromPoint(Math.max(1, innerWidth / 2), 2) ||
-        document.body;
-      var p = bg(el);
-      var key = p[0] + "," + p[1] + "," + p[2];
+      var w = Math.max(innerWidth, 1);
+      var ys = [4, 12, 20];
+      var xs = [0.15, 0.5, 0.85];
+      var sum = [0, 0, 0];
+      var n = 0;
+      for (var yi = 0; yi < ys.length; yi++) {
+        for (var xi = 0; xi < xs.length; xi++) {
+          var el =
+            document.elementFromPoint(
+              Math.max(1, Math.min(w - 2, w * xs[xi])),
+              ys[yi],
+            ) || document.body;
+          var p = bg(el);
+          sum[0] += p[0];
+          sum[1] += p[1];
+          sum[2] += p[2];
+          n++;
+        }
+      }
+      if (!n) return;
+      var r = sum[0] / n;
+      var g = sum[1] / n;
+      var b = sum[2] / n;
+      var dark = 0.299 * r + 0.587 * g + 0.114 * b < 150;
+      var key =
+        (dark ? "d" : "l") +
+        Math.round(r) +
+        "," +
+        Math.round(g) +
+        "," +
+        Math.round(b);
       if (key !== lastTheme) {
         lastTheme = key;
-        post({
-          type: "mobilelab:theme",
-          dark: 0.299 * p[0] + 0.587 * p[1] + 0.114 * p[2] < 140,
-        });
+        post({ type: "mobilelab:theme", dark: dark });
       }
     } catch (e) {}
   }
@@ -659,6 +708,160 @@
         document.activeElement.blur();
     }
   });
+
+  /* ── 5. in-app error reporting ── */
+  var lastErrKey = "";
+  var lastErrAt = 0;
+  function reportError(payload) {
+    if (!payload || !payload.message) return;
+    var key =
+      (payload.name || "") +
+      "|" +
+      String(payload.message).slice(0, 120) +
+      "|" +
+      String(payload.file || "").slice(-80) +
+      "|" +
+      (payload.line || 0);
+    var now = Date.now();
+    if (key === lastErrKey && now - lastErrAt < 1500) return;
+    lastErrKey = key;
+    lastErrAt = now;
+    post({
+      type: "mobilelab:error",
+      name: payload.name || "Error",
+      message: String(payload.message).slice(0, 800),
+      stack: payload.stack ? String(payload.stack).slice(0, 6000) : "",
+      file: payload.file || "",
+      line: payload.line || 0,
+      column: payload.column || 0,
+      source: payload.source || "runtime",
+    });
+  }
+  function parseStack(stack) {
+    if (!stack) return { file: "", line: 0, column: 0 };
+    var m =
+      /(?:at\s+)?(?:.*?\s+\()?((?:https?|file|webpack|metro)[^\s:)]+):(\d+):(\d+)/.exec(
+        stack,
+      );
+    if (!m)
+      m = /((?:\/|\w:)[^\s:)]+\.(?:js|tsx?|jsx?)):(\d+):(\d+)/.exec(stack);
+    if (!m) return { file: "", line: 0, column: 0 };
+    var file = m[1];
+    try {
+      var u = new URL(file, location.href);
+      file = u.pathname.replace(/^\/+/, "") || file;
+    } catch (e) {}
+    return { file: file, line: +m[2] || 0, column: +m[3] || 0 };
+  }
+  function fromErrorEvent(ev) {
+    var err = ev.error || ev.reason;
+    var msg =
+      (err && err.message) ||
+      (typeof ev.message === "string" ? ev.message : "") ||
+      (typeof ev.reason === "string" ? ev.reason : "") ||
+      "Unknown error";
+    var stack = (err && err.stack) || "";
+    var loc = parseStack(stack);
+    if (!loc.file && ev.filename) {
+      loc.file = String(ev.filename).replace(/^.*\//, "");
+      loc.line = ev.lineno || 0;
+      loc.column = ev.colno || 0;
+    }
+    return {
+      name:
+        (err && err.name) ||
+        (ev.type === "unhandledrejection" ? "Unhandled Rejection" : "Error"),
+      message: msg,
+      stack: stack,
+      file: loc.file,
+      line: loc.line,
+      column: loc.column,
+      source: ev.type === "unhandledrejection" ? "promise" : "runtime",
+    };
+  }
+  addEventListener(
+    "error",
+    function (ev) {
+      if (ev.target && ev.target !== window && ev.target.nodeName) return;
+      reportError(fromErrorEvent(ev));
+    },
+    true,
+  );
+  addEventListener(
+    "unhandledrejection",
+    function (ev) {
+      reportError(fromErrorEvent(ev));
+    },
+    true,
+  );
+  function scanMetroErrorPage() {
+    try {
+      var body = document.body;
+      if (!body) return;
+      var t = (body.innerText || body.textContent || "").trim();
+      if (t.length < 20 || t.length > 12000) return;
+      if (
+        !/unable to resolve module|syntaxerror|referenceerror|typeerror|module not found|bundling failed|failed to compile|invariant violation|element type is invalid|cannot find module|metro|react native/i.test(
+          t,
+        )
+      )
+        return;
+      var titleEl =
+        body.querySelector("h1, h2, [data-error], pre, code") || body;
+      var title = (titleEl.innerText || titleEl.textContent || "")
+        .trim()
+        .split("\n")[0]
+        .slice(0, 200);
+      var stackMatch = t.match(/(?:at\s+.+\n){1,20}/);
+      reportError({
+        name: "Bundle / Runtime Error",
+        message: title || t.slice(0, 300),
+        stack: stackMatch ? stackMatch[0] : t.slice(0, 4000),
+        file: "",
+        line: 0,
+        column: 0,
+        source: "metro",
+      });
+    } catch (e) {}
+  }
+  setTimeout(scanMetroErrorPage, 600);
+  setTimeout(scanMetroErrorPage, 2000);
+
+  /* ── first-paint gate: MobileLab keeps its loading cover until the app's own text is final, so you
+        never see the fallback font swap to the custom font (useFonts / expo-font) on screen. We wait for
+        document.fonts to be idle and for the DOM to stop gaining nodes. Only childList/characterData are
+        watched, so a running animation can never hold the gate open. ── */
+  var gateSent = false;
+  var gateTimer = 0;
+  function gateCheck() {
+    gateTimer = 0;
+    if (gateSent) return;
+    var f = document.fonts;
+    if (f && f.status === "loading") return; /* "loadingdone" re-arms us */
+    gateSent = true;
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        post({ type: "mobilelab:painted" });
+      });
+    });
+  }
+  function gateArm() {
+    if (gateSent) return;
+    clearTimeout(gateTimer);
+    gateTimer = setTimeout(gateCheck, 250);
+  }
+  try {
+    new MutationObserver(gateArm).observe(root, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+    if (document.fonts && document.fonts.addEventListener) {
+      document.fonts.addEventListener("loading", gateArm);
+      document.fonts.addEventListener("loadingdone", gateArm);
+    }
+  } catch (e) {}
+  gateArm();
 
   new MutationObserver(soon).observe(root, {
     subtree: true,

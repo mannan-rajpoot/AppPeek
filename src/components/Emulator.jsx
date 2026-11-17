@@ -18,6 +18,9 @@ import {
   AlertTriangle,
   RefreshCw,
   Minimize2,
+  Copy,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import DeviceFrame, { getFrameSize, getZones } from "./DeviceFrame.jsx";
@@ -143,6 +146,81 @@ function InspectOverlay({ zones, issues }) {
   );
 }
 
+function AppErrorScreen({ error, onReload, safe }) {
+  const [stackOpen, setStackOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  if (!error) return null;
+  const fileLine =
+    error.file &&
+    `${error.file}${error.line ? `:${error.line}` : ""}${error.column ? `:${error.column}` : ""}`;
+  const fullText = [
+    error.name,
+    error.message,
+    fileLine || null,
+    error.stack || null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(fullText);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+  const pad = {
+    paddingTop: Math.max(safe?.top || 0, 12) + 8,
+    paddingBottom: Math.max(safe?.bottom || 0, 12) + 8,
+    paddingLeft: Math.max(safe?.left || 0, 14),
+    paddingRight: Math.max(safe?.right || 0, 14),
+  };
+  return (
+    <div className="app-error" role="alert" style={pad}>
+      <div className="app-error-inner">
+        <div className="app-error-badge">
+          <AlertTriangle size={14} />
+          <span>{error.source === "metro" ? "Bundle error" : "App error"}</span>
+        </div>
+        <h2 className="app-error-title">{error.name || "Error"}</h2>
+        <p className="app-error-msg">{error.message}</p>
+        {fileLine && (
+          <div className="app-error-loc" title={fileLine}>
+            {fileLine}
+          </div>
+        )}
+        {error.stack && (
+          <div className="app-error-stack-wrap">
+            <button
+              type="button"
+              className="app-error-stack-toggle"
+              onClick={() => setStackOpen((v) => !v)}
+              aria-expanded={stackOpen}
+            >
+              {stackOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+              Stack trace
+            </button>
+            {stackOpen && <pre className="app-error-stack">{error.stack}</pre>}
+          </div>
+        )}
+        <div className="app-error-actions">
+          <button type="button" className="app-error-btn" onClick={copy}>
+            <Copy size={13} />
+            {copied ? "Copied" : "Copy Error"}
+          </button>
+          <button
+            type="button"
+            className="app-error-btn app-error-btn-primary"
+            onClick={onReload}
+          >
+            <RefreshCw size={13} />
+            Reload App
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // What the placeholder page says while there is no live Expo page to show.
 export function statusFor(project, server, floating = false) {
   if (!project)
@@ -209,6 +287,7 @@ export function PreviewViewport({
     hint: "",
   });
   const [issues, setIssues] = useState([]);
+  const [appError, setAppError] = useState(null);
   const status = useMemo(
     () => statusFor(project, server, floating),
     [project, server.state, server.message, floating],
@@ -289,6 +368,9 @@ export function PreviewViewport({
         sendOptions();
         sendKeyboard();
         sendInspect();
+      } else if (d.type === "mobilelab:painted") {
+        setLoading(false);
+        setAppError(null);
       } else if (d.type === "mobilelab:theme") onTone?.(!!d.dark);
       else if (d.type === "mobilelab:focus")
         setFocus({
@@ -299,6 +381,19 @@ export function PreviewViewport({
         });
       else if (d.type === "mobilelab:issues")
         setIssues(Array.isArray(d.issues) ? d.issues : []);
+      else if (d.type === "mobilelab:error") {
+        setAppError({
+          name: d.name || "Error",
+          message: d.message || "Unknown error",
+          stack: d.stack || "",
+          file: d.file || "",
+          line: d.line || 0,
+          column: d.column || 0,
+          source: d.source || "runtime",
+        });
+        setLoading(false);
+        onTone?.(true);
+      }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
@@ -329,6 +424,7 @@ export function PreviewViewport({
     if (!live) {
       onTone?.(false); // the placeholder page is light
       setFocus((f) => (f.editable ? { ...f, editable: false } : f));
+      setAppError(null);
     }
   }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -341,6 +437,7 @@ export function PreviewViewport({
   useEffect(() => {
     if (lastRefresh.current === refreshes) return;
     lastRefresh.current = refreshes;
+    setAppError(null);
     if (live && ref.current) {
       setLoading(true);
       ref.current.src = liveUrl(refreshes); // new query string = a real reload of the cross-origin page
@@ -357,6 +454,16 @@ export function PreviewViewport({
     return () => clearTimeout(t);
   }, [live, server.url]);
 
+  const reloadFromError = useCallback(() => {
+    setAppError(null);
+    setLoading(true);
+    if (live && ref.current) {
+      ref.current.src = liveUrl(Date.now() % 1e9);
+    } else {
+      post({ type: "mobilelab:refresh" });
+    }
+  }, [live, post]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <>
       <iframe
@@ -368,21 +475,30 @@ export function PreviewViewport({
           resizeMode ? { height: `calc(100% - ${kbHeight}px)` } : undefined
         }
         onLoad={() => {
-          setLoading(false);
-          setFocus((f) => (f.editable ? { ...f, editable: false } : f)); // a freshly loaded page has nothing focused
+          setTimeout(() => setLoading(false), 2500);
+          setFocus((f) => (f.editable ? { ...f, editable: false } : f));
         }}
         {...(live ? { src: initialSrc } : { srcDoc: PREVIEW_DOC })}
         sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads"
         allow="clipboard-read; clipboard-write; geolocation; microphone; camera"
       />
-      {live && loading && (
+      {live && loading && !appError && (
         <div className="preview-loading">
           <span className="spinner" />
           Loading preview…
         </div>
       )}
-      {ios.inspect && <InspectOverlay zones={zones} issues={issues} />}
-      {kbOn && (
+      {appError && (
+        <AppErrorScreen
+          error={appError}
+          onReload={reloadFromError}
+          safe={safeEff}
+        />
+      )}
+      {ios.inspect && !appError && (
+        <InspectOverlay zones={zones} issues={issues} />
+      )}
+      {kbOn && !appError && (
         <VirtualKeyboard
           open={kbVisible}
           height={kbHeight}

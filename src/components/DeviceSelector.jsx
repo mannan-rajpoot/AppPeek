@@ -76,7 +76,7 @@ export const DEVICES = [
     screenRadius: 55,
     frameRadius: 70,
     finish: { light: "#55565a", body: "#26272a", dark: "#3b3c40" }, // Space Black
-    cutout: { type: "island", width: 126, height: 37, top: 11 },
+    cutout: { width: 126, height: 37, top: 11, ear: 0 },
     buttons: {
       left: [
         { top: 150, h: 30 }, // Action button
