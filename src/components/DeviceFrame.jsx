@@ -164,8 +164,14 @@ function Clock({ ampm = false }) {
   };
   const [time, setTime] = useState(fmt);
   useEffect(() => {
-    const id = setInterval(() => setTime(fmt()), 30000);
-    return () => clearInterval(id);
+    // Tick exactly on the minute (like iOS) instead of every 30 s, so the time never lags behind.
+    let id;
+    const tick = () => {
+      setTime(fmt());
+      id = setTimeout(tick, 60000 - (Date.now() % 60000) + 30);
+    };
+    tick();
+    return () => clearTimeout(id);
   }, [ampm]);
   return <span className="sb-time">{time}</span>;
 }
@@ -245,6 +251,7 @@ export default function DeviceFrame({
   landscape = false,
   scale = 1,
   tone = "light",
+  frameRef,
   children,
 }) {
   const f = getFrameSize(device, landscape);
@@ -284,6 +291,7 @@ export default function DeviceFrame({
     // frame is visually scaled; the screen inside keeps its logical size.
     <div
       className="device-scale"
+      ref={frameRef}
       style={{ width: f.width * scale, height: f.height * scale }}
     >
       <div

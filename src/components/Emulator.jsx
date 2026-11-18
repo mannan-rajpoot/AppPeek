@@ -26,6 +26,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import DeviceFrame, { getFrameSize, getZones } from "./DeviceFrame.jsx";
 import VirtualKeyboard from "./Keyboard.jsx";
 import PreviewToolbar from "./PreviewToolbar.jsx";
+import { useRecorder } from "./useRecorder.js";
 import { DEVICES, getDevice } from "./DeviceSelector.jsx";
 
 const ZOOM_STEPS = [25, 50, 75, 100, 125, 150, 200];
@@ -619,6 +620,23 @@ export default function Emulator({
   const pct = Math.round(scale * 100);
   const safeNow = landscape ? device.safeLandscape : device.safe;
 
+  // App UI recording: captures the visible phone (see useRecorder.js).
+  const frameEl = useRef(null);
+  const rec = useRecorder({
+    getTarget: () =>
+      frameEl.current && {
+        el: frameEl.current,
+        frameW: frame.width,
+        frameH: frame.height,
+        radius: device.frameRadius,
+        name: device.name,
+      },
+  });
+  // The floating window takes over the app, so a recording here ends (and saves) first.
+  useEffect(() => {
+    if (floatingId != null && rec.isActive()) rec.stop();
+  }, [floatingId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const zoomIn = () => {
     const next = ZOOM_STEPS.find((z) => z > pct);
     if (next) onUpdate({ zoom: next });
@@ -701,6 +719,10 @@ export default function Emulator({
     if (key === "l" && e.shiftKey) {
       e.preventDefault();
       return setIosOpt({ inspect: !ios.inspect });
+    }
+    if (key === "e" && e.shiftKey) {
+      e.preventDefault();
+      return rec.toggle();
     }
     if (key === "p" && e.shiftKey) {
       e.preventDefault();
@@ -812,6 +834,7 @@ export default function Emulator({
         issueCount={issueCounts[session.id] || 0}
         onMinimize={minimize}
         onRestore={restore}
+        rec={rec}
       />
 
       {showBanner && (
@@ -905,6 +928,7 @@ export default function Emulator({
                   landscape={s.landscape}
                   scale={scaleFor(s, f)}
                   tone={tones[s.id] ? "dark" : "light"}
+                  frameRef={shown ? frameEl : undefined}
                 >
                   {floatingId === s.id ? (
                     /* the floating window owns this app now: never run two copies */

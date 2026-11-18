@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import DeviceSelector from "./DeviceSelector.jsx";
 import ConnectionStatus from "./ConnectionStatus.jsx";
+import RecordControls from "./RecordControls.jsx";
 
 function Btn({
   icon: Icon,
@@ -147,6 +148,7 @@ export default function PreviewToolbar({
   issueCount = 0,
   onMinimize,
   onRestore,
+  rec,
 }) {
   const off = minimized;
   const syncUnsupported = syncState === "unsupported";
@@ -248,6 +250,8 @@ export default function PreviewToolbar({
         onClick={onToggleSync}
         disabled={!project || syncUnsupported}
       />
+      <span className="tb-sep" />
+      {rec && <RecordControls rec={rec} disabled={off} />}
       <span className="tb-sep" />
       <Btn
         icon={Keyboard}

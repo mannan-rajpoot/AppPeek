@@ -97,6 +97,13 @@ export function getDevice(id) {
   return DEVICES.find((d) => d.id === id) || DEVICES[1];
 }
 
+// Home cards draw every phone at the SAME scale, so the lineup keeps its real relative sizes
+// (a 14 really is smaller than an 18 Pro Max). The tallest phone is fitted to CARD_PHONE_HEIGHT px.
+const CARD_PHONE_HEIGHT = 232;
+const CARD_SCALE =
+  CARD_PHONE_HEIGHT /
+  Math.max(...DEVICES.map((d) => getFrameSize(d, false).height));
+
 // variant="cards"  → big picker used on the Home screen
 // variant="select" → compact dropdown used in the simulator toolbar
 export default function DeviceSelector({
@@ -126,7 +133,6 @@ export default function DeviceSelector({
   return (
     <div className="device-grid">
       {DEVICES.map((d) => {
-        const frame = getFrameSize(d, false);
         return (
           <button
             key={d.id}
@@ -134,8 +140,9 @@ export default function DeviceSelector({
             onClick={() => onSelect(d.id)}
           >
             <div className="device-card-art">
-              <DeviceFrame device={d} scale={150 / frame.height}>
-                <div className="blank-screen" />
+              {/* white screen + light tone: the live clock, notch / Dynamic Island and home indicator all show */}
+              <DeviceFrame device={d} scale={CARD_SCALE} tone="light">
+                <div className="blank-screen is-white" />
               </DeviceFrame>
             </div>
             <div className="device-card-body">

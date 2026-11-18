@@ -6,6 +6,7 @@ import { LogicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
 import {
   Keyboard,
   Pin,
+  Video,
   PinOff,
   RefreshCw,
   Ruler,
@@ -16,6 +17,8 @@ import {
 import DeviceFrame, { getFrameSize } from "./DeviceFrame.jsx";
 import { getDevice } from "./DeviceSelector.jsx";
 import { PreviewViewport, readIos, writeIos } from "./Emulator.jsx";
+import { useRecorder } from "./useRecorder.js";
+import { RecToast, fmtTime } from "./RecordControls.jsx";
 
 // Transparent ring around the phone: it is the drag area and holds the controls.
 export const FLOAT_MARGIN = 30;
@@ -91,6 +94,26 @@ export default function Floating() {
 
   const now = useRef({});
   now.current = { scale, landscape, frame, device };
+
+  // App UI recording of the floating phone (same engine and options as the main window).
+  const frameEl = useRef(null);
+  const rec = useRecorder({
+    getTarget: () => {
+      const { frame: f, device: d } = now.current;
+      return (
+        frameEl.current &&
+        f &&
+        d && {
+          el: frameEl.current,
+          frameW: f.width,
+          frameH: f.height,
+          radius: d.frameRadius,
+          name: d.name,
+        }
+      );
+    },
+  });
+  const recording = rec.state === "recording";
 
   const maxScale = (f) =>
     Math.min(
@@ -173,11 +196,16 @@ export default function Floating() {
     };
   }, [win]);
 
-  const leave = (closeSession) =>
+  const leave = async (closeSession) => {
+    if (rec.isActive()) {
+      await rec.stop(); // save the video before this window closes
+      await new Promise((r) => setTimeout(r, 600));
+    }
     invoke("exit_floating", {
       landscape: now.current.landscape,
       closeSession,
     }).catch(() => {});
+  };
 
   const rotate = async () => {
     const { scale: s0, landscape: l0, frame: f0, device: d } = now.current;
@@ -220,6 +248,10 @@ export default function Floating() {
     if (ctrl && e.shiftKey && k === "k") {
       e.preventDefault();
       return toggleKeyboardNow();
+    }
+    if (ctrl && e.shiftKey && k === "e") {
+      e.preventDefault();
+      return rec.toggle();
     }
     if (ctrl && e.shiftKey && k === "l") {
       e.preventDefault();
@@ -304,7 +336,7 @@ export default function Floating() {
   return (
     <div className="float-root" ref={rootRef} data-tauri-drag-region>
       <div
-        className="float-bar"
+        className={`float-bar ${rec.state !== "idle" ? "is-recording" : ""}`}
         role="toolbar"
         aria-label="Floating simulator controls"
       >
@@ -339,6 +371,26 @@ export default function Floating() {
         >
           <Ruler size={13} />
         </button>
+        <button
+          className={recording || rec.state === "countdown" ? "is-rec" : ""}
+          title={
+            recording
+              ? "Stop recording (Ctrl+Shift+E)"
+              : "Record the app UI as a video (Ctrl+Shift+E)"
+          }
+          aria-label="Record"
+          disabled={rec.state === "starting" || rec.state === "saving"}
+          onClick={rec.toggle}
+        >
+          {rec.state === "countdown" ? (
+            <b className="float-count">{rec.count}</b>
+          ) : (
+            <Video size={13} />
+          )}
+        </button>
+        {recording && (
+          <span className="float-time">{fmtTime(rec.elapsed)}</span>
+        )}
         <button title="Rotate" aria-label="Rotate" onClick={rotate}>
           <RotateCw size={13} />
         </button>
@@ -372,6 +424,7 @@ export default function Floating() {
         landscape={landscape}
         scale={scale}
         tone={dark ? "dark" : "light"}
+        frameRef={frameEl}
       >
         <PreviewViewport
           device={device}
@@ -387,6 +440,8 @@ export default function Floating() {
           onIssues={setIssues}
         />
       </DeviceFrame>
+
+      <RecToast rec={rec} className="float-toast" />
 
       <span
         className="float-grip"
