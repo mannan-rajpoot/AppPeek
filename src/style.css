@@ -731,10 +731,7 @@ button:disabled {
   inset: var(--band);
   border-radius: calc(var(--fr) - var(--band));
   background: #050505;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 0 0 1px rgba(0, 0, 0, 0.85);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.85);
 }
 .screen {
   position: absolute;
@@ -746,9 +743,7 @@ button:disabled {
   overflow: hidden;
   /* Near-black so dark apps don’t show a white halo at the rounded corners */
   background: #000;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.9),
-    inset 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
   isolation: isolate;
   contain: layout paint;
 }
@@ -1211,7 +1206,7 @@ button:disabled {
   color: #fff;
 }
 .screen.tone-dark .home-indicator {
-  background: #fff;
+  display: none; /* no white line on black UI */
 }
 
 .fs-exit {
@@ -3519,4 +3514,39 @@ html.is-recording .inspect {
   top: 36px;
   max-width: calc(100% - 20px);
   font-size: 11px;
+}
+
+/* ───────── Black UI: bezel blends into the screen (no grey ring) ───────── */
+.device:has(.screen.tone-dark) {
+  background: linear-gradient(160deg, #0d0d0f 0%, #070708 50%, #030304 100%);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 1px 2px rgba(0, 0, 0, 0.2),
+    0 18px 40px -12px rgba(0, 0, 0, 0.55),
+    0 40px 72px -28px rgba(0, 0, 0, 0.4);
+}
+.device:has(.screen.tone-dark) .glass {
+  background: #000;
+  box-shadow: 0 0 0 1px #000;
+}
+.device:has(.screen.tone-dark) .side-btn {
+  background: #101012;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.9);
+}
+
+/* Black UI: kill the light hairline at the screen edge (iframe is white-backed and
+   anti-aliases against the clipped rounded edge, especially at fractional scales) */
+.screen.tone-dark .preview-frame,
+.screen.tone-dark .viewport {
+  background: #000;
+}
+.screen.tone-dark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px #000;
+  pointer-events: none;
 }

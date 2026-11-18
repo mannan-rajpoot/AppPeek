@@ -1,8 +1,8 @@
-/* MobileLab preview helper. The backend injects this into the Expo page's HTML.
+/* AppPeek preview helper. The backend injects this into the Expo page's HTML.
    It never changes your components: it only (1) tells the page its iPhone safe-area / keyboard
-   sizes through CSS variables, (2) reports focus + top colour to MobileLab, (3) types keys sent
+   sizes through CSS variables, (2) reports focus + top colour to AppPeek, (3) types keys sent
    from the on-screen keyboard, and (4) when Layout Inspector is on, measures what sits in the
-   protected system areas and reports it. Overlays are drawn by MobileLab, not inside your page. */
+   protected system areas and reports it. Overlays are drawn by AppPeek, not inside your page. */
 (function () {
   var root = document.documentElement;
   var timer = 0;
@@ -404,7 +404,7 @@
     soon();
   }
 
-  /* ── focus reporting (so MobileLab can show/hide its keyboard) ── */
+  /* ── focus reporting (so AppPeek can show/hide its keyboard) ── */
   function reportFocus() {
     var el = document.activeElement;
     var ok = isEditable(el);
@@ -440,7 +440,7 @@
     true,
   );
 
-  /* ── typing from MobileLab's on-screen keyboard ── */
+  /* ── typing from AppPeek's on-screen keyboard ── */
   function keyEvent(type, key) {
     var code =
       key === "Enter"
@@ -827,7 +827,7 @@
   setTimeout(scanMetroErrorPage, 600);
   setTimeout(scanMetroErrorPage, 2000);
 
-  /* ── first-paint gate: MobileLab keeps its loading cover until the app's own text is final, so you
+  /* ── first-paint gate: AppPeek keeps its loading cover until the app's own text is final, so you
         never see the fallback font swap to the custom font (useFonts / expo-font) on screen. We wait for
         document.fonts to be idle and for the DOM to stop gaining nodes. Only childList/characterData are
         watched, so a running animation can never hold the gate open. ── */

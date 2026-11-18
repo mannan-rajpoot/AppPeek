@@ -1,4 +1,4 @@
-// MobileLab backend — Phase 3: project detection + Expo dev-server management.
+// AppPeek backend — Phase 3: project detection + Expo dev-server management.
 // All process handling lives here (never in browser JavaScript).
 
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ struct ServerPayload {
     port: Option<u16>,
     message: Option<String>,
     hint: Option<String>,
-    external: bool, // true = attached to a server MobileLab did not start
+    external: bool, // true = attached to a server AppPeek did not start
 }
 
 fn payload(
@@ -255,7 +255,7 @@ fn explain(tail: &[String]) -> (String, String) {
     if all.contains("eaddrinuse") || all.contains("address already in use") {
         (
             "The port is already in use.".into(),
-            "Another program took the port. Press Start again and MobileLab will pick a free one.".into(),
+            "Another program took the port. Press Start again and AppPeek will pick a free one.".into(),
         )
     } else if all.contains("cannot find module") || all.contains("err_module_not_found") {
         (
@@ -270,7 +270,7 @@ fn explain(tail: &[String]) -> (String, String) {
     } else if all.contains("is not recognized") || all.contains("command not found") || all.contains("enoent") {
         (
             "A required tool was not found.".into(),
-            "Make sure Node.js and your package manager are installed, then restart MobileLab.".into(),
+            "Make sure Node.js and your package manager are installed, then restart AppPeek.".into(),
         )
     } else if last.is_empty() {
         (
@@ -339,7 +339,7 @@ fn inspect(dir: &Path) -> Result<ProjectInfo, Problem> {
 
     let mut warnings = vec![];
     if node_version().is_none() {
-        warnings.push("Node.js was not found. Install Node.js (LTS) from nodejs.org and restart MobileLab.".to_string());
+        warnings.push("Node.js was not found. Install Node.js (LTS) from nodejs.org and restart AppPeek.".to_string());
     }
     if !installed {
         warnings.push(format!("Dependencies are not installed. Run `{manager} install` in the project folder."));
@@ -368,9 +368,9 @@ fn inspect(dir: &Path) -> Result<ProjectInfo, Problem> {
 }
 
 /* ───────────── preview proxy ─────────────
-   The simulator loads the Expo page through this tiny local proxy so MobileLab can:
+   The simulator loads the Expo page through this tiny local proxy so AppPeek can:
    - give the page real iPhone safe-area / keyboard sizes (env(safe-area-inset-*) and
-     env(keyboard-inset-*) become variables that MobileLab sets),
+     env(keyboard-inset-*) become variables that AppPeek sets),
    - learn the page's top colour and focus state (status bar text, on-screen keyboard), and
    - run the optional layout inspector. It never edits your components.
    Everything else (HMR websockets, assets, API calls) passes through untouched. */
@@ -887,7 +887,7 @@ fn start_inner(app: &AppHandle, st: &AppState, path: &str) -> Result<u16, Proble
     if node_version().is_none() {
         return Err(problem(
             "Node.js was not found.",
-            "Install Node.js (LTS) from nodejs.org, then restart MobileLab.",
+            "Install Node.js (LTS) from nodejs.org, then restart AppPeek.",
         ));
     }
     let tool = if info.manager == "npm" { "npx" } else { info.manager.as_str() };
@@ -895,7 +895,7 @@ fn start_inner(app: &AppHandle, st: &AppState, path: &str) -> Result<u16, Proble
     if !tool_ok {
         return Err(problem(
             &format!("`{tool}` was not found."),
-            "Install your package manager (for example `npm install -g pnpm`), then restart MobileLab.",
+            "Install your package manager (for example `npm install -g pnpm`), then restart AppPeek.",
         ));
     }
 
@@ -1121,7 +1121,7 @@ async fn open_floating(app: AppHandle, state: State<'_, AppState>, args: FloatAr
         let _ = w.set_focus();
     } else {
         let mut b = WebviewWindowBuilder::new(&app, "floating", WebviewUrl::App("index.html".into()))
-            .title("MobileLab Simulator")
+            .title("AppPeek Simulator")
             .inner_size(args.width, args.height)
             .decorations(false)
             .transparent(true)
@@ -1186,6 +1186,16 @@ fn vscode_sync_stop(app: AppHandle, state: State<'_, AppState>) {
     vscode_sync::emit(&app, "off");
 }
 
+// The main window starts hidden (no white flash, no resize jump). The UI calls this once its
+// first frame is painted, and the window then appears already at its final size.
+#[tauri::command]
+fn app_ready(app: AppHandle) {
+    if let Some(m) = app.get_webview_window("main") {
+        let _ = m.show();
+        let _ = m.set_focus();
+    }
+}
+
 // Last lines printed by Expo, so the UI can offer "Copy log" on errors.
 #[tauri::command]
 fn get_log(state: State<'_, AppState>) -> Vec<String> {
@@ -1226,8 +1236,29 @@ async fn system_memory_mb() -> Option<u64> {
 }
 
 pub fn run() {
+    use tauri_plugin_window_state::StateFlags;
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Remembers the main window's size, position and maximized/fullscreen choice.
+        // First launch has no saved state, so tauri.conf.json (maximized) applies.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::all() - StateFlags::VISIBLE - StateFlags::DECORATIONS)
+                .with_denylist(&["floating"]) // the floating simulator keeps its own saved position
+                .build(),
+        )
+        .setup(|app| {
+            // Safety net: if the UI never reports ready, still show the window.
+            let handle = app.handle().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(4000));
+                if handle.get_webview_window("floating").is_none() {
+                    app_ready(handle);
+                }
+            });
+            Ok(())
+        })
         .manage(AppState::default())
         .on_window_event(|window, event| {
             if window.label() == "floating" {
@@ -1244,6 +1275,7 @@ pub fn run() {
             reconnect_server,
             server_status,
             get_log,
+            app_ready,
             system_memory_mb,
             open_floating,
             floating_config,
@@ -1252,9 +1284,9 @@ pub fn run() {
             vscode_sync_stop
         ])
         .build(tauri::generate_context!())
-        .expect("error while building MobileLab")
+        .expect("error while building AppPeek")
         .run(|app, event| {
-            // Never leave an Expo process behind when MobileLab closes.
+            // Never leave an Expo process behind when AppPeek closes.
             if let RunEvent::Exit = event {
                 let _ = app.state::<AppState>().0.lock().unwrap().sync.take();
                 stop_inner(app.state::<AppState>().inner());

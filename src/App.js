@@ -124,6 +124,8 @@ function Workspace() {
   const [floatingId, setFloatingId] = useState(null); // session shown in the floating window
   const [syncOn, setSyncOn] = useState(readSyncPref); // follow the project's VS Code window
   const [syncState, setSyncState] = useState("off"); // off | searching | following | minimized | closed | unsupported
+  // The window opens hidden; the intro starts only once it is visible, so its opening is never missed.
+  const [windowShown, setWindowShown] = useState(!inTauri());
   const floatRef = useRef(null);
   const floatHandler = useRef(null);
   const nextId = useRef(1);
@@ -154,6 +156,26 @@ function Workspace() {
   projectRef.current = project;
 
   const active = sessions.find((s) => s.id === activeId) || null;
+
+  // Show the window after the first painted frame (already at its remembered / maximized size),
+  // then start the intro on the next frame.
+  useEffect(() => {
+    if (!inTauri()) return;
+    let dead = false;
+    requestAnimationFrame(() =>
+      requestAnimationFrame(async () => {
+        try {
+          await invoke("app_ready");
+        } catch {
+          /* the backend shows the window by itself after a few seconds */
+        }
+        if (!dead) requestAnimationFrame(() => setWindowShown(true));
+      }),
+    );
+    return () => {
+      dead = true;
+    };
+  }, []);
 
   /* ───────── performance: size the workspace to the computer ───────── */
 
@@ -568,7 +590,7 @@ function Workspace() {
           <Home onOpen={(id) => go(() => openDevice(id))} />
         </div>
       )}
-      {!introGone && (
+      {windowShown && !introGone && (
         <Intro
           onLeave={() => setHomeReady(true)}
           onDone={() => setIntroGone(true)}

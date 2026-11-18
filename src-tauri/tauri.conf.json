@@ -19,7 +19,10 @@
         "minHeight": 600,
         "center": true,
         "label": "main",
-        "decorations": false
+        "decorations": false,
+        "maximized": true,
+        "visible": false,
+        "backgroundColor": "#ffffff"
       }
     ],
     "security": {
