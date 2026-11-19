@@ -112,16 +112,42 @@ export default function Floating() {
         }
       );
     },
+    // Sharp text: grow the floating phone to 100% (or the largest that fits the screen) while
+    // recording, keep it on screen, and restore the old size afterwards.
+    prepare: async ({ need = 0 } = {}) => {
+      const { scale: s0, frame: f } = now.current;
+      const dpr = window.devicePixelRatio || 1;
+      const target = clamp(Math.max(1, need / dpr), f, 6); // real pixels for the chosen output size
+      if (target <= s0 + 0.01) return null;
+      applyScale(target);
+      try {
+        const sf = await win.scaleFactor();
+        const p = (await win.outerPosition()).toLogical(sf);
+        const sc = window.screen;
+        const w = Math.round(f.width * target + 2 * FLOAT_MARGIN);
+        const h = Math.round(f.height * target + 2 * FLOAT_MARGIN);
+        const left = sc.availLeft || 0;
+        const top = sc.availTop || 0;
+        const x = Math.max(left, Math.min(p.x, left + sc.availWidth - w));
+        const y = Math.max(top, Math.min(p.y, top + sc.availHeight - h));
+        if (x !== p.x || y !== p.y)
+          await win.setPosition(new LogicalPosition(x, y));
+      } catch {
+        /* keep the position */
+      }
+      return () => applyScale(s0);
+    },
   });
   const recording = rec.state === "recording";
 
-  const maxScale = (f) =>
+  const maxScale = (f, cap = 2) =>
     Math.min(
       (window.screen.availWidth - 2 * FLOAT_MARGIN) / f.width,
       (window.screen.availHeight - 2 * FLOAT_MARGIN) / f.height,
-      2,
+      cap,
     );
-  const clamp = (s, f) => Math.max(0.25, Math.min(s, maxScale(f)));
+  const clamp = (s, f, cap = 2) =>
+    Math.max(0.25, Math.min(s, maxScale(f, cap)));
   const winSize = (s, f) =>
     new LogicalSize(
       Math.round(f.width * s + 2 * FLOAT_MARGIN),

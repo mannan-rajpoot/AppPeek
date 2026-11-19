@@ -11,8 +11,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export const REC_DEFAULTS = {
   size: "auto",
   aspect: "1:1",
-  fps: "auto",
+  fps: 60,
   bg: true,
+  sharp: true, // enlarge the phone to the biggest size that fits while recording, then restore it
 };
 const REC_KEY = "mobilelab.rec";
 export function readRec() {
@@ -34,6 +35,7 @@ export function writeRec(v) {
 }
 
 export const SIZE_OPTIONS = [
+  { v: "native", label: "1080×1920 native HD (60 fps)" },
   { v: "auto", label: "Auto (best for this PC)" },
   { v: 720, label: "720p" },
   { v: 1080, label: "1080p Full HD" },
@@ -46,13 +48,13 @@ export const ASPECT_OPTIONS = [
   { v: "9:16", label: "Story 9:16" },
 ];
 export const FPS_OPTIONS = [
-  { v: "auto", label: "Auto" },
-  { v: 30, label: "30 fps" },
-  { v: 60, label: "60 fps" },
+  { v: 60, label: "60 fps (needs 8 GB RAM)" },
+  { v: 30, label: "30 fps (steady, recommended)" },
 ];
 
 const ASPECT = { "1:1": 1, "4:5": 0.8, "9:16": 9 / 16 }; // width / height
 const PAD = 0.055; // empty margin around the phone, as a share of the canvas
+const NATIVE = { W: 1080, H: 1920, pad: 0.035 }; // exact 1080×1920 story canvas, phone fills it
 const MAX_SECONDS = 600; // safety stop
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
 
@@ -70,13 +72,15 @@ const ALPHA_MIME_LIST = [
   "video/webm;codecs=vp8",
   "video/webm",
 ];
-export function pickMime(alpha = false) {
-  if (typeof MediaRecorder === "undefined") return null;
-  return (
-    (alpha ? ALPHA_MIME_LIST : MIME_LIST).find((m) =>
-      MediaRecorder.isTypeSupported(m),
-    ) || null
+// Every encoder this window supports, best first (the recorder tries them in order).
+export function pickMimes(alpha = false) {
+  if (typeof MediaRecorder === "undefined") return [];
+  return (alpha ? ALPHA_MIME_LIST : MIME_LIST).filter((m) =>
+    MediaRecorder.isTypeSupported(m),
   );
+}
+export function pickMime(alpha = false) {
+  return pickMimes(alpha)[0] || null;
 }
 export function recFormatLabel(bg = true) {
   const m = pickMime(!bg);
@@ -88,52 +92,106 @@ export function recFormatLabel(bg = true) {
       : "WebM with transparent background";
 }
 
-// Resolution / frame-rate / bitrate for this recording. "Auto" matches the real pixels that are
-// on screen (never blows a small capture up) and picks a frame rate the PC can sustain.
-export function makePlan(cfg, frameW, frameH, srcScale) {
+const hw = () => {
   const cores = navigator.hardwareConcurrency || 4;
   const mem = navigator.deviceMemory || 4;
   const strong = cores >= 8 && mem >= 8;
-  const fps = cfg.fps === "auto" ? (cores >= 6 ? 60 : 30) : Number(cfg.fps);
+  // Only caps "Auto" to protect weak encoders; downscaling keeps text clean, upscaling blurs it.
+  const capLong = strong ? 2160 : cores >= 4 ? 1920 : 1440;
+  return { cores, strong, capLong };
+};
+// Low-memory PCs (under 6 GB, e.g. 4 GB) cannot hold 60 fps: the encoder stalls and frames come out
+// uneven. They are held at an even 30 fps whatever is selected. 8 GB or more can use 60.
+export const lowMemory = () => (navigator.deviceMemory || 8) < 6;
+export function planFps(cfg) {
+  if (lowMemory()) return 30;
+  return cfg.size === "native" || Number(cfg.fps) === 60 ? 60 : 30;
+}
+
+// Output canvas for the chosen options. Returns null when "Auto" needs the captured size first.
+function sizing(cfg, frameW, frameH, srcScale) {
+  const { capLong } = hw();
+  if (cfg.size === "native")
+    return { W: NATIVE.W, H: NATIVE.H, bg: true, pad: NATIVE.pad };
+  const auto = cfg.size === "auto";
+  if (auto && srcScale == null) return null;
   if (cfg.bg === false) {
     // phone only: the video has the phone's own proportions, "resolution" is its long side
     const long = Math.max(frameW, frameH);
-    const cap = strong ? 1440 : 1080;
-    const L =
-      cfg.size === "auto"
-        ? Math.max(480, Math.min(Math.round(srcScale * long), cap))
-        : Number(cfg.size);
+    const L = auto
+      ? Math.max(480, Math.min(Math.round(srcScale * long), capLong))
+      : Number(cfg.size);
     const k = L / long;
-    const W = even(frameW * k);
-    const H = even(frameH * k);
-    const bps = Math.round(Math.min(45e6, Math.max(3e6, W * H * fps * 0.12)));
-    return { W, H, fps, bps, bg: false };
+    return { W: even(frameW * k), H: even(frameH * k), bg: false, pad: 0 };
   }
   const r = ASPECT[cfg.aspect] || 1;
   let short;
-  if (cfg.size === "auto") {
+  if (auto) {
     const wanted = (srcScale * Math.max(frameW, frameH * r)) / (1 - 2 * PAD);
-    short = wanted <= 800 ? 720 : wanted <= 1260 ? 1080 : 1440;
-    short = Math.min(short, strong ? 1440 : 1080);
+    short = Math.max(
+      480,
+      Math.min(Math.round(wanted), capLong * Math.min(1, r)),
+    );
   } else short = Number(cfg.size);
-  const W = even(short);
-  const H = even(short / r);
-  const bps = Math.round(Math.min(45e6, Math.max(4e6, W * H * fps * 0.1)));
-  return { W, H, fps, bps, bg: true };
+  return { W: even(short), H: even(short / r), bg: true, pad: PAD };
 }
+
+// Output pixels per phone point the chosen options need (0 = "Auto", which just matches the screen).
+// The simulator is enlarged on screen to this size while recording, so the pixels are real, not stretched.
+export function targetK(cfg, frameW, frameH) {
+  const z = sizing(cfg, frameW, frameH, null);
+  if (!z) return 0;
+  return Math.min(
+    (z.W * (1 - 2 * z.pad)) / frameW,
+    (z.H * (1 - 2 * z.pad)) / frameH,
+  );
+}
+
+// Resolution / frame-rate / bitrate for this recording. "Auto" matches the real pixels that are
+// on screen (never blows a small capture up).
+export function makePlan(cfg, frameW, frameH, srcScale) {
+  const fps = planFps(cfg);
+  const z = sizing(cfg, frameW, frameH, srcScale);
+  // ~0.3 bits per pixel per frame keeps thin text strokes free of H.264 blur (37 Mbps at 1080×1920@60).
+  const bps = Math.round(Math.min(60e6, Math.max(8e6, z.W * z.H * fps * 0.3)));
+  return { ...z, fps, bps };
+}
+
+// Wait until the page has really re-laid-out and re-painted (e.g. after the phone was enlarged).
+const settle = (ms = 450) =>
+  new Promise((resolve) =>
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => setTimeout(resolve, ms)),
+    ),
+  );
 
 // Static part of every frame: white background + soft shadow (falls to the right, like the
 // reference clip), the rounded clip path and where the phone goes. Built once, not per frame.
-function buildLayout(W, H, frameW, frameH, radius, withBg = true) {
-  const pad = withBg ? PAD : 0;
+function buildLayout(
+  W,
+  H,
+  frameW,
+  frameH,
+  radius,
+  withBg = true,
+  snap = null,
+  padding = PAD,
+) {
+  const pad = withBg ? padding : 0;
   const k = Math.min(
     (W * (1 - 2 * pad)) / frameW,
     (H * (1 - 2 * pad)) / frameH,
   );
-  const dw = frameW * k;
-  const dh = frameH * k;
-  const dx = (W - dw) / 2;
-  const dy = (H - dh) / 2;
+  // Whole pixels only: a half-pixel offset or size makes the canvas resample every glyph (blur).
+  // When the target is within 2 px of the captured size, use the captured size exactly (1:1).
+  let dw = Math.round(frameW * k);
+  let dh = Math.round(frameH * k);
+  if (snap && Math.abs(dw - snap.sw) <= 2 && Math.abs(dh - snap.sh) <= 2) {
+    dw = Math.round(snap.sw);
+    dh = Math.round(snap.sh);
+  }
+  const dx = Math.round((W - dw) / 2);
+  const dy = Math.round((H - dh) / 2);
   const rr = radius * k;
 
   if (!withBg) {
@@ -202,6 +260,11 @@ function sourceRect(v, surface, cropped, el) {
   sy = Math.max(0, sy);
   sw = x2 - sx;
   sh = y2 - sy;
+  // whole source pixels, so a 1:1 copy is a true pixel copy
+  sx = Math.round(sx);
+  sy = Math.round(sy);
+  sw = Math.round(sw);
+  sh = Math.round(sh);
   return sw < 2 || sh < 2 ? null : { sx, sy, sw, sh };
 }
 
@@ -238,9 +301,13 @@ function download(blob, name) {
 }
 
 // getTarget() → { el, frameW, frameH, radius, name } for the phone that should be recorded.
-export function useRecorder({ getTarget }) {
+// prepare() (optional) runs before capture starts: it may enlarge the phone for a sharper video and
+// returns a function that puts everything back, called when the recording ends or is cancelled.
+export function useRecorder({ getTarget, prepare }) {
   const targetRef = useRef(getTarget);
   targetRef.current = getTarget;
+  const prepareRef = useRef(prepare);
+  prepareRef.current = prepare;
   const [state, setStateRaw] = useState("idle"); // idle | starting | countdown | recording | saving
   const [count, setCount] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -273,6 +340,11 @@ export function useRecorder({ getTarget }) {
     S.current = null;
     cancelAnimationFrame(s.raf);
     clearInterval(s.timer);
+    try {
+      s.restore?.(); // put the phone size back
+    } catch {
+      /* ignore */
+    }
     s.stream?.getTracks().forEach((t) => t.stop());
     if (s.video) {
       s.video.srcObject = null;
@@ -330,12 +402,35 @@ export function useRecorder({ getTarget }) {
     const gone = () => S.current !== s;
 
     try {
+      // 0 ─ sharp mode: make the phone as large as the window allows (restored when we finish)
+      if (cfg.sharp !== false && prepareRef.current) {
+        try {
+          const need = targetK(cfg, tg0.frameW, tg0.frameH);
+          s.restore = (await prepareRef.current({ need })) || null;
+          if (s.restore) await settle();
+        } catch {
+          /* recording still works at the current size */
+        }
+        if (s.cancelled || gone()) {
+          teardown();
+          setState("idle");
+          return;
+        }
+      }
+
       // 1 ─ ask for the screen (the browser may show its own picker the first time)
       let stream;
-      const hint = cfg.fps === "auto" ? 60 : Number(cfg.fps);
+      // Ask the capture for 60 when we can: sampling a 30 fps video from a 60 fps source is smoother.
+      const hint = lowMemory() ? 30 : 60;
       try {
         stream = await navigator.mediaDevices.getDisplayMedia({
-          video: { frameRate: { ideal: hint, max: 60 }, cursor: "never" },
+          // Ask for the full native pixels (no capture-side downscale) and a 60 fps source.
+          video: {
+            frameRate: { ideal: hint, max: 60 },
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
+            cursor: "never",
+          },
           audio: false,
           preferCurrentTab: true,
           selfBrowserSurface: "include",
@@ -355,6 +450,11 @@ export function useRecorder({ getTarget }) {
         return;
       }
       const track = stream.getVideoTracks()[0];
+      try {
+        track.contentHint = "detail"; // tell the pipeline sharp text matters more than motion
+      } catch {
+        /* optional */
+      }
       const surface = track.getSettings?.().displaySurface || "browser";
       const v = document.createElement("video");
       v.muted = true;
@@ -393,8 +493,8 @@ export function useRecorder({ getTarget }) {
 
       // 3 ─ plan: resolution, fps, bitrate, codec
       const plan = makePlan(cfg, tg.frameW, tg.frameH, srcScale);
-      const mime = pickMime(!plan.bg);
-      if (!mime) return fail("This window cannot encode video.");
+      const mimes = pickMimes(!plan.bg);
+      if (!mimes.length) return fail("This window cannot encode video.");
       const canvas = document.createElement("canvas");
       canvas.width = plan.W;
       canvas.height = plan.H;
@@ -408,6 +508,8 @@ export function useRecorder({ getTarget }) {
         tg.frameH,
         tg.radius,
         plan.bg,
+        src,
+        plan.pad,
       );
 
       const draw = () => {
@@ -423,6 +525,8 @@ export function useRecorder({ getTarget }) {
             t.frameH,
             t.radius,
             plan.bg,
+            sr,
+            plan.pad,
           ); // rotated
         if (L.bg) ctx.drawImage(L.bg, 0, 0);
         else ctx.clearRect(0, 0, plan.W, plan.H);
@@ -447,10 +551,27 @@ export function useRecorder({ getTarget }) {
       if (!s.vtrack.requestFrame) {
         s.vtrack = canvas.captureStream(plan.fps).getVideoTracks()[0];
       }
-      const rec = new MediaRecorder(cstream, {
-        mimeType: mime,
-        videoBitsPerSecond: plan.bps,
-      });
+      try {
+        s.vtrack.contentHint = "detail";
+      } catch {
+        /* optional */
+      }
+      // Try each encoder (H.264 MP4 first) until one actually opens at this size.
+      let rec = null;
+      let mime = null;
+      for (const m of mimes) {
+        try {
+          rec = new MediaRecorder(cstream, {
+            mimeType: m,
+            videoBitsPerSecond: plan.bps,
+          });
+          mime = m;
+          break;
+        } catch {
+          /* try the next format */
+        }
+      }
+      if (!rec) return fail("This window could not start the video encoder.");
       const chunks = [];
       rec.ondataavailable = (e) => e.data?.size && chunks.push(e.data);
       rec.onerror = () => fail("Recording failed.");
@@ -467,8 +588,13 @@ export function useRecorder({ getTarget }) {
           say(
             "ok",
             `Saved ${name} · ${plan.W}×${plan.H} · ${plan.fps} fps · ${(blob.size / 1048576).toFixed(1)} MB` +
+              (type.includes("mp4") ? "" : " · WebM (no MP4 encoder here)") +
+              (plan.fps === 30 &&
+              (cfg.size === "native" || Number(cfg.fps) === 60)
+                ? " · held at 30 fps (low memory PC)"
+                : "") +
               (upscaled
-                ? ". The screen was smaller than the video, so enlarge the simulator for a sharper result."
+                ? `. The phone only had ${src.sh} real pixels in height but is ${L.dh} px tall in the video, so it was enlarged (softer). A bigger or higher-DPI display, or a smaller output size, gives a sharper result.`
                 : ""),
           );
         } else say("bad", "Nothing was recorded.");
@@ -494,7 +620,7 @@ export function useRecorder({ getTarget }) {
       let next = performance.now();
       const tick = (t) => {
         s.raf = requestAnimationFrame(tick);
-        if (t + 1 < next) return; // not due yet (display refresh faster than the video fps)
+        if (t + interval * 0.3 < next) return; // not due yet; the tolerance stops 60 fps from skipping frames on jitter
         next = Math.max(next + interval, t);
         draw();
       };

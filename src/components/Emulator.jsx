@@ -603,13 +603,13 @@ export default function Emulator({
     return () => ro.disconnect();
   }, []);
 
-  const fitFor = (frame) =>
+  const fitFor = (frame, cap = 1) =>
     Math.max(
       0.2,
       Math.min(
         (stage.w - STAGE_PADDING) / frame.width,
         (stage.h - STAGE_PADDING) / frame.height,
-        1,
+        cap,
       ),
     );
   const scaleFor = (s, frame) =>
@@ -631,6 +631,20 @@ export default function Emulator({
         radius: device.frameRadius,
         name: device.name,
       },
+    // Sharp text: while recording, show the phone at the largest size that fully fits the
+    // workspace (never above 100%), then put the old zoom back. More real pixels = crisper text.
+    // `need` = output pixels per phone point. The phone is rendered that large on screen (above 100%
+    // when the output is bigger than the phone, e.g. 1080×1920) so the video gets real pixels, not a blurry stretch.
+    prepare: async ({ need = 0 } = {}) => {
+      if (minimized) return null;
+      const prevZoom = session.zoom;
+      const dpr = window.devicePixelRatio || 1; // real screen pixels per CSS pixel
+      const want = Math.max(1, need / dpr);
+      const best = Math.min(fitFor(frame, 8), want);
+      if (best <= scaleFor(session, frame) + 0.01) return null; // already as large as it can be
+      onUpdate({ zoom: Math.floor(best * 100) });
+      return () => onUpdate({ zoom: prevZoom });
+    },
   });
   // The floating window takes over the app, so a recording here ends (and saves) first.
   useEffect(() => {

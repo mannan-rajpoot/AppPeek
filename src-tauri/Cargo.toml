@@ -1,11 +1,11 @@
 [package]
-name = "mobilelab"
+name = "AppPeek"
 version = "0.1.0"
 description = "AppPeek - React Native Expo development companion"
 edition = "2021"
 
 [lib]
-name = "mobilelab_lib"
+name = "app_peek_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

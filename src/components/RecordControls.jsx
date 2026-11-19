@@ -127,14 +127,15 @@ export default function RecordControls({ rec, disabled }) {
             <span>Background</span>
             <select
               className="select"
-              value={cfg.bg === false ? "off" : "on"}
+              value={cfg.size === "native" || cfg.bg !== false ? "on" : "off"}
+              disabled={cfg.size === "native"}
               onChange={(e) => set({ bg: e.target.value === "on" })}
             >
               <option value="on">On (white + shadow)</option>
               <option value="off">Off (phone only)</option>
             </select>
           </label>
-          {cfg.bg !== false && (
+          {cfg.bg !== false && cfg.size !== "native" && (
             <label className="menu-row">
               <span>Shape</span>
               {pick("aspect", ASPECT_OPTIONS)}
@@ -144,12 +145,34 @@ export default function RecordControls({ rec, disabled }) {
             <span>Frame rate</span>
             {pick("fps", FPS_OPTIONS)}
           </label>
+          <label className="menu-row">
+            <span>Sharp text</span>
+            <select
+              className="select"
+              value={cfg.sharp === false ? "off" : "on"}
+              onChange={(e) => set({ sharp: e.target.value === "on" })}
+            >
+              <option value="on">On (enlarge while recording)</option>
+              <option value="off">Off (keep current size)</option>
+            </select>
+          </label>
+          {cfg.size === "native" && (
+            <p className="menu-note">
+              Exact 1080×1920 at 60 fps on a white 9:16 canvas. The phone is
+              enlarged on screen while recording so every video pixel is real.
+              The screen must be tall enough to show the phone about 1700 px
+              tall (a 4K or high-DPI display); on smaller screens it is enlarged
+              and a note tells you.
+            </p>
+          )}
           <p className="menu-note">
-            {recFormatLabel(cfg.bg !== false)} ·{" "}
+            {recFormatLabel(cfg.bg !== false || cfg.size === "native")} ·{" "}
             {cfg.bg === false
               ? "only the phone, sized like the phone. Resolution is the phone's long side."
               : "white background, phone and soft shadow."}{" "}
-            Auto picks the best size and fps this PC can keep smooth.
+            Auto records at the exact pixels shown (no blur from enlarging), at
+            a high bitrate. Sharp text makes the phone as big as the window
+            allows while recording.
           </p>
         </div>
       )}

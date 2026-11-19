@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    mobilelab_lib::run()
+    app_peek_lib::run()
 }
