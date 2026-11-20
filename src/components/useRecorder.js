@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createCursor } from "./recCursor.js";
 
 // ─────────────────────────────────────────────────────────────
 //  App UI recorder.
@@ -14,6 +15,7 @@ export const REC_DEFAULTS = {
   fps: 60,
   bg: true,
   sharp: true, // enlarge the phone to the biggest size that fits while recording, then restore it
+  cursor: true, // draw a smooth macOS-style cursor into the video (the system cursor is left out)
 };
 const REC_KEY = "mobilelab.rec";
 export function readRec() {
@@ -284,6 +286,7 @@ function waitFrames(v, n) {
   });
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const pad2 = (n) => String(n).padStart(2, "0");
 function stamp() {
   const d = new Date();
@@ -298,6 +301,188 @@ function download(blob, name) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+// ───────── Auto-adjust: pick the best resolution + frame rate this laptop can really record ─────────
+// Records short synthetic clips (same canvas drawing, same encoder, same bitrate as a real recording)
+// from the best setting downwards and keeps the first one that holds its frame rate without stalls.
+// Only "size" and "fps" are changed; every other option (sharp text, background, shape, cursor) is kept.
+const TUNE_LADDER = [
+  [2160, 60],
+  [1440, 60],
+  [1080, 60],
+  [1440, 30],
+  [1080, 30],
+  [720, 60],
+  [720, 30],
+];
+const sizeLabel = (n) =>
+  n === 2160
+    ? "2160p 4K"
+    : n === 1440
+      ? "1440p 2K"
+      : n === 1080
+        ? "1080p Full HD"
+        : `${n}p`;
+
+async function benchOne(cfg, size, fps, ms = 1500) {
+  const NOM = { w: 430, h: 932, r: 55 }; // a typical phone frame
+  const z = sizing({ ...cfg, size }, NOM.w, NOM.h, 1);
+  const mimes = pickMimes(!z.bg);
+  if (!mimes.length) return false;
+  const L = buildLayout(z.W, z.H, NOM.w, NOM.h, NOM.r, z.bg, null, z.pad);
+  const canvas = document.createElement("canvas");
+  canvas.width = z.W;
+  canvas.height = z.H;
+  const ctx = canvas.getContext("2d", { alpha: !z.bg });
+  // a UI-like source: white page with text-like bars
+  const page = document.createElement("canvas");
+  page.width = L.dw;
+  page.height = L.dh;
+  const px = page.getContext("2d");
+  px.fillStyle = "#fff";
+  px.fillRect(0, 0, L.dw, L.dh);
+  for (let i = 0; i < 60; i++) {
+    px.fillStyle = i % 7 === 0 ? "#0a0a0a" : "#d8d8d8";
+    px.fillRect(
+      L.dw * 0.1,
+      L.dh * (0.05 + i * 0.015),
+      L.dw * (0.25 + ((i * 37) % 50) / 100),
+      L.dh * 0.006,
+    );
+  }
+  let cstream = canvas.captureStream(0);
+  let vt = cstream.getVideoTracks()[0];
+  if (!vt.requestFrame) {
+    cstream = canvas.captureStream(fps);
+    vt = cstream.getVideoTracks()[0];
+  }
+  try {
+    vt.contentHint = "detail";
+  } catch {
+    /* optional */
+  }
+  const bps = Math.round(Math.min(60e6, Math.max(8e6, z.W * z.H * fps * 0.3)));
+  let rec = null;
+  for (const m of mimes) {
+    try {
+      rec = new MediaRecorder(cstream, {
+        mimeType: m,
+        videoBitsPerSecond: bps,
+      });
+      break;
+    } catch {
+      /* next encoder */
+    }
+  }
+  if (!rec) {
+    cstream.getTracks().forEach((t) => t.stop());
+    return false;
+  }
+  let bytes = 0;
+  let failed = false;
+  rec.ondataavailable = (e) => (bytes += e.data?.size || 0);
+  rec.onerror = () => (failed = true);
+  const stamps = [];
+  let raf = 0;
+  const t0 = performance.now();
+  const interval = 1000 / fps;
+  let next = t0;
+  const tick = (t) => {
+    raf = requestAnimationFrame(tick);
+    if (t + interval * 0.3 < next) return;
+    next = Math.max(next + interval, t);
+    const k = (t - t0) / 1000;
+    if (L.bg) ctx.drawImage(L.bg, 0, 0);
+    else ctx.clearRect(0, 0, z.W, z.H);
+    ctx.save();
+    ctx.clip(L.clip);
+    ctx.drawImage(page, L.dx, L.dy);
+    // moving content so the encoder has real work every frame
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fillRect(L.dx, L.dy + ((k * 0.35) % 1) * L.dh * 0.8, L.dw, L.dh * 0.14);
+    ctx.fillStyle = "rgba(120,120,120,0.45)";
+    ctx.fillRect(
+      L.dx + ((k * 0.6) % 1) * L.dw * 0.7,
+      L.dy + L.dh * 0.3,
+      L.dw * 0.3,
+      L.dh * 0.3,
+    );
+    ctx.restore();
+    vt.requestFrame?.();
+    stamps.push(performance.now());
+  };
+  try {
+    rec.start(500);
+    raf = requestAnimationFrame(tick);
+    await sleep(ms);
+  } catch {
+    failed = true;
+  }
+  cancelAnimationFrame(raf);
+  await new Promise((resolve) => {
+    const guard = setTimeout(resolve, 2500);
+    rec.onstop = () => {
+      clearTimeout(guard);
+      resolve();
+    };
+    try {
+      rec.stop();
+    } catch {
+      clearTimeout(guard);
+      resolve();
+    }
+  });
+  cstream.getTracks().forEach((t) => t.stop());
+  if (failed || !bytes) return false;
+
+  const body = stamps.filter((t) => t - t0 > 400); // ignore the warm-up
+  if (body.length < 8) return false;
+  const span = body[body.length - 1] - body[0];
+  const gaps = body
+    .slice(1)
+    .map((t, i) => t - body[i])
+    .sort((a, b) => a - b);
+  const p95 = gaps[Math.floor(gaps.length * 0.95)];
+  const achieved = ((body.length - 1) / span) * 1000;
+  return achieved >= fps * 0.93 && p95 <= interval * 1.8;
+}
+
+// Largest output the screen can fill with real pixels (phone ≈ screen height minus the app's own bars).
+function tuneCap(cfg, size) {
+  const dpr = window.devicePixelRatio || 1;
+  const avail = (window.screen.availHeight || window.innerHeight || 900) * dpr;
+  const room = Math.max(400 * dpr, avail - 140 * dpr);
+  const z = sizing({ ...cfg, size }, 430, 932, 1);
+  return z.H * (1 - 2 * z.pad) <= room * 1.35; // a little enlarging is fine, a lot only blurs
+}
+
+export async function autoTune(onStep) {
+  const cfg = readRec();
+  const low = lowMemory();
+  const ladder = TUNE_LADDER.filter(
+    ([size, fps]) => (!low || fps === 30) && tuneCap(cfg, size),
+  );
+  const list = ladder.length ? ladder : [[720, 30]];
+  let pick = list[list.length - 1];
+  for (let i = 0; i < list.length; i++) {
+    const [size, fps] = list[i];
+    onStep?.(`Testing ${sizeLabel(size)} · ${fps} fps…`);
+    await settle(120);
+    let ok = false;
+    try {
+      ok = i === list.length - 1 ? true : await benchOne(cfg, size, fps);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      pick = list[i];
+      break;
+    }
+  }
+  const [size, fps] = pick;
+  writeRec({ ...readRec(), size, fps }); // sharp text and every other option stay as they are
+  return { size, fps, label: `${sizeLabel(size)} · ${fps} fps` };
 }
 
 // getTarget() → { el, frameW, frameH, radius, name } for the phone that should be recorded.
@@ -342,6 +527,11 @@ export function useRecorder({ getTarget, prepare }) {
     clearInterval(s.timer);
     try {
       s.restore?.(); // put the phone size back
+    } catch {
+      /* ignore */
+    }
+    try {
+      s.cursor?.stop();
     } catch {
       /* ignore */
     }
@@ -422,26 +612,46 @@ export function useRecorder({ getTarget, prepare }) {
       let stream;
       // Ask the capture for 60 when we can: sampling a 30 fps video from a 60 fps source is smoother.
       const hint = lowMemory() ? 30 : 60;
-      try {
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          // Ask for the full native pixels (no capture-side downscale) and a 60 fps source.
-          video: {
-            frameRate: { ideal: hint, max: 60 },
-            width: { ideal: 3840 },
-            height: { ideal: 2160 },
-            cursor: "never",
-          },
-          audio: false,
-          preferCurrentTab: true,
-          selfBrowserSurface: "include",
-          surfaceSwitching: "exclude",
-        });
-      } catch (e) {
-        if (e?.name === "TypeError")
-          stream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,
-          });
-        else throw e;
+      // The system cursor is never wanted in the capture: when it is on, a virtual cursor is drawn
+      // instead (smooth, macOS style). Some windows reject the richer requests with a TypeError, and
+      // the old plain fallback silently brought the system cursor back, so every fallback keeps
+      // `cursor: "never"` and it is applied again on the live track below.
+      const gdm = (opts) => navigator.mediaDevices.getDisplayMedia(opts);
+      const attempts = [
+        () =>
+          gdm({
+            // Ask for the full native pixels (no capture-side downscale) and a 60 fps source.
+            video: {
+              frameRate: { ideal: hint, max: 60 },
+              width: { ideal: 3840 },
+              height: { ideal: 2160 },
+              cursor: "never",
+            },
+            audio: false,
+            preferCurrentTab: true,
+            selfBrowserSurface: "include",
+            surfaceSwitching: "exclude",
+          }),
+        () =>
+          gdm({
+            video: {
+              frameRate: { ideal: hint, max: 60 },
+              width: { ideal: 3840 },
+              height: { ideal: 2160 },
+              cursor: "never",
+            },
+            audio: false,
+          }),
+        () => gdm({ video: { cursor: "never" }, audio: false }),
+        () => gdm({ video: true }),
+      ];
+      for (let i = 0; i < attempts.length; i++) {
+        try {
+          stream = await attempts[i]();
+          break;
+        } catch (e) {
+          if (e?.name !== "TypeError" || i === attempts.length - 1) throw e;
+        }
       }
       s.stream = stream;
       if (s.cancelled) {
@@ -450,6 +660,14 @@ export function useRecorder({ getTarget, prepare }) {
         return;
       }
       const track = stream.getVideoTracks()[0];
+      const virtualCursor = cfg.cursor !== false;
+      if (virtualCursor) {
+        try {
+          await track.applyConstraints({ cursor: "never" });
+        } catch {
+          /* not supported by this window: the settings check below tells */
+        }
+      }
       try {
         track.contentHint = "detail"; // tell the pipeline sharp text matters more than motion
       } catch {
@@ -501,6 +719,24 @@ export function useRecorder({ getTarget, prepare }) {
       const ctx = canvas.getContext("2d", { alpha: !plan.bg });
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
+      // macOS cursor: a real on-screen element (the capture records it). It needs the system cursor to be
+      // invisible: the phone page confirms it hides its own cursor (inject.js), or the capture leaves it out.
+      if (virtualCursor) {
+        const cur = createCursor(() => targetRef.current?.());
+        const hidden = await cur.ready;
+        if (hidden || track.getSettings?.().cursor === "never") {
+          cur.enable();
+          s.cursor = cur;
+        } else {
+          cur.stop();
+          s.cursorNote =
+            " · Windows cursor recorded as is: restart AppPeek once so the updated preview helper (inject.js) loads";
+        }
+        if (gone()) {
+          cur.stop();
+          return;
+        }
+      }
       let L = buildLayout(
         plan.W,
         plan.H,
@@ -582,6 +818,7 @@ export function useRecorder({ getTarget, prepare }) {
         const name = `AppPeek-${(tg.name || "iPhone").replace(/\s+/g, "-")}${plan.bg ? "" : "-nobg"}-${stamp()}.${type.includes("mp4") ? "mp4" : "webm"}`;
         const upscaled = L.k / srcScale > 1.15;
         const resolve = s.resolveStop;
+        const s0 = { cursorNote: s.cursorNote }; // teardown() clears S.current
         teardown();
         if (blob.size) {
           download(blob, name);
@@ -589,6 +826,7 @@ export function useRecorder({ getTarget, prepare }) {
             "ok",
             `Saved ${name} · ${plan.W}×${plan.H} · ${plan.fps} fps · ${(blob.size / 1048576).toFixed(1)} MB` +
               (type.includes("mp4") ? "" : " · WebM (no MP4 encoder here)") +
+              (s0.cursorNote || "") +
               (plan.fps === 30 &&
               (cfg.size === "native" || Number(cfg.fps) === 60)
                 ? " · held at 30 fps (low memory PC)"

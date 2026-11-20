@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Square, Video, X } from "lucide-react";
+import { ChevronDown, Gauge, Square, Video, X } from "lucide-react";
 import {
   ASPECT_OPTIONS,
   FPS_OPTIONS,
   SIZE_OPTIONS,
+  autoTune,
   readRec,
   recFormatLabel,
   writeRec,
@@ -31,6 +32,8 @@ export function RecToast({ rec, className = "" }) {
 export default function RecordControls({ rec, disabled }) {
   const [open, setOpen] = useState(false);
   const [cfg, setCfg] = useState(readRec);
+  const [tuning, setTuning] = useState(false);
+  const [tuneMsg, setTuneMsg] = useState("");
   const ref = useRef(null);
   const st = rec.state;
   const busy = st !== "idle";
@@ -59,6 +62,7 @@ export default function RecordControls({ rec, disabled }) {
   const pick = (k, list) => (
     <select
       className="select"
+      disabled={tuning}
       value={cfg[k]}
       onChange={(e) => {
         const raw = e.target.value;
@@ -72,6 +76,21 @@ export default function RecordControls({ rec, disabled }) {
       ))}
     </select>
   );
+
+  // Tests this laptop and sets only Resolution and Frame rate to what it can record smoothly.
+  const autoAdjust = async () => {
+    if (tuning) return;
+    setTuning(true);
+    setTuneMsg("Testing this laptop…");
+    try {
+      const r = await autoTune(setTuneMsg);
+      setCfg(readRec());
+      setTuneMsg(`Set to ${r.label}. Other options were not changed.`);
+    } catch {
+      setTuneMsg("Could not test this laptop. Settings were not changed.");
+    }
+    setTuning(false);
+  };
 
   const label =
     st === "recording"
@@ -119,6 +138,24 @@ export default function RecordControls({ rec, disabled }) {
 
       {open && (
         <div className="menu rec-menu" role="menu">
+          <button
+            className="btn"
+            style={{ width: "calc(100% - 16px)", margin: "2px 8px 6px" }}
+            onClick={autoAdjust}
+            disabled={tuning}
+            title="Tests this laptop and sets the best Resolution and Frame rate"
+          >
+            {tuning ? <span className="spinner" /> : <Gauge size={14} />}
+            {tuning ? "Testing…" : "Auto-adjust for this laptop"}
+          </button>
+          {tuneMsg && (
+            <p
+              className="menu-note"
+              style={{ margin: "0 8px 6px", paddingTop: 0, border: 0 }}
+            >
+              {tuneMsg}
+            </p>
+          )}
           <label className="menu-row">
             <span>Resolution</span>
             {pick("size", SIZE_OPTIONS)}
@@ -144,6 +181,17 @@ export default function RecordControls({ rec, disabled }) {
           <label className="menu-row">
             <span>Frame rate</span>
             {pick("fps", FPS_OPTIONS)}
+          </label>
+          <label className="menu-row">
+            <span>Cursor</span>
+            <select
+              className="select"
+              value={cfg.cursor === false ? "off" : "on"}
+              onChange={(e) => set({ cursor: e.target.value === "on" })}
+            >
+              <option value="on">On (smooth macOS arrow)</option>
+              <option value="off">Off (no cursor drawn)</option>
+            </select>
           </label>
           <label className="menu-row">
             <span>Sharp text</span>

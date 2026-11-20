@@ -695,6 +695,7 @@
       soon();
     } else if (d.type === "mobilelab:options") setOptions(d);
     else if (d.type === "mobilelab:keyboard") setKeyboard(d);
+    else if (d.type === "mobilelab:cursor") setCursorMode(d.on);
     else if (d.type === "mobilelab:inspect") {
       insp = { on: !!d.on, zones: d.zones || [] };
       if (!insp.on) {
@@ -708,6 +709,69 @@
         document.activeElement.blur();
     }
   });
+
+  /* ── 6. recording cursor. While AppPeek records, the Windows cursor must not be captured, so it is
+        hidden inside this page too (cursor:none), and the pointer position + left button are reported
+        so AppPeek can draw its smooth macOS cursor in the video. Nothing here runs unless AppPeek asks. ── */
+  var curOn = false;
+  var curStyle = null;
+  var ptr = null;
+  var ptrDown = false;
+  var ptrRaf = 0;
+  function sendPtr() {
+    ptrRaf = 0;
+    if (!ptr) return;
+    var q = ptr;
+    ptr = null;
+    post({ type: "mobilelab:pointer", x: q.x, y: q.y, down: ptrDown });
+  }
+  function queuePtr(e) {
+    ptr = { x: e.clientX, y: e.clientY };
+    if (!ptrRaf) ptrRaf = requestAnimationFrame(sendPtr);
+  }
+  function onPtrMove(e) {
+    queuePtr(e);
+  }
+  function onPtrDown(e) {
+    if (e.button === 0) {
+      ptrDown = true;
+      queuePtr(e);
+    }
+  }
+  function onPtrUp(e) {
+    if (e.button === 0) {
+      ptrDown = false;
+      queuePtr(e);
+    }
+  }
+  function setCursorMode(on) {
+    on = !!on;
+    if (on === curOn) {
+      post({ type: "mobilelab:cursor-ack", on: on });
+      return;
+    }
+    curOn = on;
+    if (on) {
+      curStyle = document.createElement("style");
+      curStyle.id = "ml-cursor";
+      curStyle.textContent = "html,body,*{cursor:none!important}";
+      (document.head || root).appendChild(curStyle);
+      addEventListener("pointermove", onPtrMove, true);
+      addEventListener("pointerdown", onPtrDown, true);
+      addEventListener("pointerup", onPtrUp, true);
+      addEventListener("pointercancel", onPtrUp, true);
+    } else {
+      if (curStyle && curStyle.parentNode)
+        curStyle.parentNode.removeChild(curStyle);
+      curStyle = null;
+      removeEventListener("pointermove", onPtrMove, true);
+      removeEventListener("pointerdown", onPtrDown, true);
+      removeEventListener("pointerup", onPtrUp, true);
+      removeEventListener("pointercancel", onPtrUp, true);
+      ptrDown = false;
+    }
+    post({ type: "mobilelab:cursor-ack", on: on });
+  }
 
   /* ── 5. in-app error reporting ── */
   var lastErrKey = "";
